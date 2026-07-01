@@ -78,11 +78,8 @@ addEventListener('resize', () => {
   renderer.setSize(W(), H());
 });
 
-(function loop() {
-  requestAnimationFrame(loop);
-  controls.update();
-  renderer.render(scene, camera);
-})();
+// render loop is started at the very end of the file, once the solve/tween
+// state flags it reads (camMoving/homing/solving) have been declared.
 
 // --- interaction gates ------------------------------------------------------
 let freeMode = false;
@@ -279,7 +276,11 @@ const ARROW_MAT = new THREE.MeshStandardMaterial({
 });
 let arrowObj = null;
 let camMoving = false;
-const SOLVE_VIEW = new THREE.Vector3(3.6, 3.0, 7.0); // gentle 3/4 view for following turns
+// Solving keeps a gentle front 3/4 as the BASE view; a move whose face is hidden
+// from it tilts the camera just enough to reveal that arrow, and we glide back to
+// BASE as soon as the next move is visible from the front again.
+const BASE_DIR = new THREE.Vector3(0.34, 0.26, 0.90).normalize();
+const SOLVE_VIEW = BASE_DIR.clone().multiplyScalar(8.3);
 
 function clearArrow() {
   if (arrowObj) {
@@ -351,15 +352,20 @@ function activeNormal(token) {
   const base = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[info.axisKey];
   return base.map(c => c * info.layer); // outward normal of the turning layer
 }
-function faceVisible(n) {
-  const d = camera.position.clone().normalize();
-  return d.x * n[0] + d.y * n[1] + d.z * n[2] > 0.15;
+// is face n comfortably visible from the base solving view?
+function faceVisibleFromBase(n) {
+  return BASE_DIR.x * n[0] + BASE_DIR.y * n[1] + BASE_DIR.z * n[2] > 0.2;
 }
-function targetCamPos(n) {
+// tilt the base view toward a hidden face just enough to reveal its arrow
+function revealPos(n) {
   const nv = new THREE.Vector3(n[0], n[1], n[2]);
-  const up = Math.abs(n[1]) > 0.5 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-  const side = new THREE.Vector3().crossVectors(nv, up).normalize().multiplyScalar(0.5);
-  return nv.multiplyScalar(1.3).add(up.multiplyScalar(0.6)).add(side).normalize().multiplyScalar(8.2);
+  return BASE_DIR.clone().addScaledVector(nv, 1.7).normalize().multiplyScalar(8.5);
+}
+// where this move should be viewed from: BASE if front-visible, else a reveal tilt
+function desiredView(token) {
+  const n = activeNormal(token);
+  if (!n || faceVisibleFromBase(n)) return SOLVE_VIEW;
+  return revealPos(n);
 }
 function orbitCameraTo(target, dur = 680) {
   return new Promise(resolve => {
@@ -474,9 +480,9 @@ async function showStep() {
   solveCounter.textContent = `第 ${idx + 1} / ${flat.length} 步`;
   solveBar.style.width = `${(idx / flat.length) * 100}%`;
   solvePrev.disabled = idx === 0;
-  // if the layer we're about to turn faces away from the camera, orbit to reveal it
-  const n = activeNormal(cur.token);
-  if (n && !faceVisible(n)) await orbitCameraTo(targetCamPos(n));
+  // glide to the right viewpoint: reveal a hidden face, or return to the front base
+  const target = desiredView(cur.token);
+  if (camera.position.distanceTo(target) > 0.5) await orbitCameraTo(target);
   if (session && session.flat[session.idx] === cur) showArrow(cur.token); // still on this step?
 }
 
@@ -640,3 +646,12 @@ document.getElementById('editReset').addEventListener('click', () => {
   for (const f of NET_ORDER) netData[f] = Array(9).fill(f);
   renderNet();
 });
+
+// --- render loop ------------------------------------------------------------
+(function loop() {
+  requestAnimationFrame(loop);
+  // let OrbitControls drive the camera only when a tween/solve isn't; otherwise
+  // it fights (and overrides) our reveal-orbit and recenter animations.
+  if (!camMoving && !homing && !solving) controls.update();
+  renderer.render(scene, camera);
+})();
