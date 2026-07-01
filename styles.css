@@ -95,6 +95,8 @@ html, body {
   background: var(--accent);
   box-shadow: 0 0 12px 1px rgba(110, 168, 255, 0.8);
 }
+.topbar-actions { display: flex; gap: 10px; }
+.pill.icon .glyph { font-size: 15px; line-height: 1; color: var(--accent); }
 
 /* ---------- bottom dock ---------- */
 .dock {

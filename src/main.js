@@ -93,6 +93,34 @@ function setFree(on) {
 }
 freeToggle.addEventListener('click', () => setFree(!freeMode));
 
+// --- recenter: glide the camera back to the default face-on view ------------
+const HOME_POS = new THREE.Vector3(3.4, 3.6, 8.4);
+const HOME_TARGET = new THREE.Vector3(0, 0, 0);
+let homing = false;
+function homeView() {
+  if (homing) return;
+  homing = true;
+  const p0 = camera.position.clone();
+  const t0 = controls.target.clone();
+  const wasRotate = controls.enableRotate;
+  controls.enabled = false; // let the tween own the camera briefly
+  const dur = 520;
+  let start = null;
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  const step = ts => {
+    if (start === null) start = ts;
+    const t = Math.min(1, (ts - start) / dur);
+    const k = ease(t);
+    camera.position.lerpVectors(p0, HOME_POS, k);
+    controls.target.lerpVectors(t0, HOME_TARGET, k);
+    camera.lookAt(controls.target);
+    if (t < 1) requestAnimationFrame(step);
+    else { controls.enabled = true; controls.enableRotate = wasRotate; homing = false; }
+  };
+  requestAnimationFrame(step);
+}
+document.getElementById('recenter').addEventListener('click', homeView);
+
 // --- button + keyboard wiring ----------------------------------------------
 document.querySelectorAll('[data-face]').forEach(btn => {
   btn.addEventListener('click', e => cube.move(btn.dataset.face + (e.shiftKey ? "'" : '')));
@@ -113,6 +141,7 @@ addEventListener('keydown', e => {
   const k = e.key;
   if (/^[udlrfb]$/i.test(k)) cube.move(k.toUpperCase() + (e.shiftKey ? "'" : ''));
   else if (/^[xyz]$/i.test(k)) cube.move(k.toLowerCase() + (e.shiftKey ? "'" : ''));
+  else if (k === 'c' || k === 'C') homeView();
   else if (k === ' ') { e.preventDefault(); setFree(!freeMode); }
 });
 
