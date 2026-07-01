@@ -274,9 +274,12 @@ const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 
 // --- directional arrow ------------------------------------------------------
 const ARROW_MAT = new THREE.MeshStandardMaterial({
-  color: 0xffd84d, emissive: 0xffb000, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0,
+  color: 0xfff3d0, emissive: 0xffab1a, emissiveIntensity: 0.85,
+  roughness: 0.3, metalness: 0.0, toneMapped: false, // bypass tone-map so it glows brighter
 });
 let arrowObj = null;
+let camMoving = false;
+const SOLVE_VIEW = new THREE.Vector3(3.6, 3.0, 7.0); // gentle 3/4 view for following turns
 
 function clearArrow() {
   if (arrowObj) {
@@ -287,10 +290,14 @@ function clearArrow() {
   cube.clearHighlight();
 }
 
-function pulseArrow() {
+// draw the arc from tail toward the head on a loop — reads as motion in the turn direction
+function animateArrow() {
   if (!arrowObj) return;
-  ARROW_MAT.emissiveIntensity = 0.5 + 0.35 * Math.sin(performance.now() / 240);
-  requestAnimationFrame(pulseArrow);
+  const { tube, triCount } = arrowObj.userData;
+  const t = (performance.now() % 1500) / 1500;
+  tube.geometry.setDrawRange(0, Math.ceil(triCount * Math.min(1, t / 0.72)));
+  ARROW_MAT.emissiveIntensity = 0.72 + 0.28 * Math.sin(performance.now() / 300);
+  requestAnimationFrame(animateArrow);
 }
 
 function showArrow(token) {
@@ -300,7 +307,7 @@ function showArrow(token) {
   cube.setHighlight(info.axisKey, info.whole ? null : info.layer);
   arrowObj = buildArc(info.axisKey, info.whole ? 0 : info.layer, info.sign, info.quarters);
   scene.add(arrowObj);
-  pulseArrow();
+  animateArrow();
 }
 
 function buildArc(axisKey, layer, sign, quarters) {
@@ -309,9 +316,9 @@ function buildArc(axisKey, layer, sign, quarters) {
   const helper = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(helper, a).normalize();
   const v = new THREE.Vector3().crossVectors(a, u).normalize();
-  const R = 2.55;
-  const offset = layer * 1.55;
-  const span = quarters >= 2 ? 2.4 : 1.5; // radians of arc shown
+  const R = 2.72;
+  const offset = layer * 1.5;
+  const span = quarters >= 2 ? 2.5 : 1.6; // radians of arc shown
   const dir = sign >= 0 ? 1 : -1;
   const th0 = -dir * span / 2;
   const th1 = dir * span / 2;
@@ -319,23 +326,65 @@ function buildArc(axisKey, layer, sign, quarters) {
     .addScaledVector(u, R * Math.cos(th))
     .addScaledVector(v, R * Math.sin(th))
     .addScaledVector(a, offset);
-  const N = 40;
   const pts = [];
-  for (let i = 0; i <= N; i++) pts.push(P(th0 + (th1 - th0) * (i / N)));
-  const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.06, 10, false), ARROW_MAT,
-  );
+  for (let i = 0; i <= 64; i++) pts.push(P(th0 + (th1 - th0) * (i / 64)));
+  const tubeGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.1, 16, false);
+  const tube = new THREE.Mesh(tubeGeo, ARROW_MAT);
   g.add(tube);
   const tip = P(th1);
   const tangent = new THREE.Vector3()
     .addScaledVector(u, -Math.sin(th1))
     .addScaledVector(v, Math.cos(th1))
     .multiplyScalar(dir).normalize();
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.42, 18), ARROW_MAT);
-  cone.position.copy(tip);
-  cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-  g.add(cone);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.66, 26), ARROW_MAT);
+  head.position.copy(tip);
+  head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+  g.add(head);
+  g.userData = { tube, head, triCount: tubeGeo.index.count };
   return g;
+}
+
+// --- camera: reveal the active face when it's hidden -----------------------
+function activeNormal(token) {
+  const info = parseMove(token);
+  if (!info || info.whole || info.layer === 0) return null;
+  const base = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[info.axisKey];
+  return base.map(c => c * info.layer); // outward normal of the turning layer
+}
+function faceVisible(n) {
+  const d = camera.position.clone().normalize();
+  return d.x * n[0] + d.y * n[1] + d.z * n[2] > 0.15;
+}
+function targetCamPos(n) {
+  const nv = new THREE.Vector3(n[0], n[1], n[2]);
+  const up = Math.abs(n[1]) > 0.5 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+  const side = new THREE.Vector3().crossVectors(nv, up).normalize().multiplyScalar(0.5);
+  return nv.multiplyScalar(1.3).add(up.multiplyScalar(0.6)).add(side).normalize().multiplyScalar(8.2);
+}
+function orbitCameraTo(target, dur = 680) {
+  return new Promise(resolve => {
+    camMoving = true;
+    controls.enabled = false;
+    const d0 = camera.position.clone().normalize();
+    const d1 = target.clone().normalize();
+    const r0 = camera.position.length();
+    const r1 = target.length();
+    const full = new THREE.Quaternion().setFromUnitVectors(d0, d1);
+    const idq = new THREE.Quaternion();
+    const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    let start = null;
+    const step = ts => {
+      if (start === null) start = ts;
+      const t = Math.min(1, (ts - start) / dur);
+      const k = ease(t);
+      const q = new THREE.Quaternion().slerpQuaternions(idq, full, k);
+      camera.position.copy(d0.clone().applyQuaternion(q).multiplyScalar(r0 + (r1 - r0) * k));
+      camera.lookAt(0, 0, 0);
+      if (t < 1) requestAnimationFrame(step);
+      else { controls.enabled = true; camMoving = false; resolve(); }
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 // --- human-readable hint for a move ----------------------------------------
@@ -386,7 +435,6 @@ async function startSolve() {
   if (solving || editing || cube.isBusy()) return;
   solving = true;
   if (freeMode) setFree(false);
-  homeView();
   // rare: reorient so centres are canonical, so the solver's face moves line up
   for (const t of orientMoves(cube.getState())) await cube.move(t);
 
@@ -413,10 +461,11 @@ async function startSolve() {
   solvePanel.hidden = false;
   solveAuto.classList.remove('on');
   solveAuto.textContent = '自动 ▶';
-  showStep();
+  await orbitCameraTo(SOLVE_VIEW); // start from a 3/4 view so turns read clearly
+  await showStep();
 }
 
-function showStep() {
+async function showStep() {
   const { flat, idx } = session;
   const cur = flat[idx];
   solvePhase.textContent = cur.phase;
@@ -425,26 +474,29 @@ function showStep() {
   solveCounter.textContent = `第 ${idx + 1} / ${flat.length} 步`;
   solveBar.style.width = `${(idx / flat.length) * 100}%`;
   solvePrev.disabled = idx === 0;
-  showArrow(cur.token);
+  // if the layer we're about to turn faces away from the camera, orbit to reveal it
+  const n = activeNormal(cur.token);
+  if (n && !faceVisible(n)) await orbitCameraTo(targetCamPos(n));
+  if (session && session.flat[session.idx] === cur) showArrow(cur.token); // still on this step?
 }
 
 async function nextStep() {
-  if (!session || cube.isBusy()) return;
+  if (!session || cube.isBusy() || camMoving) return;
   const cur = session.flat[session.idx];
   clearArrow();
   await cube.move(cur.token);
   session.idx++;
   if (session.idx >= session.flat.length) { solveBar.style.width = '100%'; exitSolve(true); return; }
-  showStep();
+  await showStep();
   if (session.auto) session.autoTimer = setTimeout(nextStep, 240);
 }
 
 async function prevStep() {
-  if (!session || cube.isBusy() || session.idx === 0) return;
+  if (!session || cube.isBusy() || camMoving || session.idx === 0) return;
   session.idx--;
   clearArrow();
   await cube.move(invertToken(session.flat[session.idx].token));
-  showStep();
+  await showStep();
 }
 
 function toggleAuto() {
@@ -462,6 +514,7 @@ function exitSolve(finished) {
   solving = false;
   solvePanel.hidden = true;
   dock.hidden = false;
+  homeView(); // back to the clean face-on view
   if (finished) toast('还原完成，恭喜 🎉');
 }
 
