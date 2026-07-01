@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Cubic Solver</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◧</span>
+      <div>
+        <h1>Cubic&nbsp;Solver</h1>
+        <p>跟着屏幕，一步步复原你的魔方</p>
+      </div>
+    </div>
+
+    <button id="freeToggle" class="pill" aria-pressed="false" title="自由观察模式（空格）">
+      <span class="dot"></span> 自由观察 · Free
+    </button>
+  </header>
+
+  <div class="dock">
+    <section class="panel faces">
+      <div class="panel-title">拧一层 · Turn a layer</div>
+      <div class="btn-row">
+        <button class="face" data-face="U"><i style="background:#f7f7f5"></i>U</button>
+        <button class="face" data-face="D"><i style="background:#ffd500"></i>D</button>
+        <button class="face" data-face="L"><i style="background:#ff5800"></i>L</button>
+        <button class="face" data-face="R"><i style="background:#b71234"></i>R</button>
+        <button class="face" data-face="F"><i style="background:#009b48"></i>F</button>
+        <button class="face" data-face="B"><i style="background:#0046ad"></i>B</button>
+      </div>
+      <div class="hint">点击 = 顺时针 · Shift＋点击 / 右键 = 逆时针 · 也可直接在魔方上拖动</div>
+    </section>
+
+    <section class="panel whole">
+      <div class="panel-title">整体旋转 · Rotate cube</div>
+      <div class="btn-row">
+        <button class="ghost" data-move="x"  title="绕 R 方向翻转">x</button>
+        <button class="ghost" data-move="x'" title="反向">x′</button>
+        <button class="ghost" data-move="y"  title="绕 U 方向翻转">y</button>
+        <button class="ghost" data-move="y'" title="反向">y′</button>
+        <button class="ghost" data-move="z"  title="绕 F 方向翻转">z</button>
+        <button class="ghost" data-move="z'" title="反向">z′</button>
+      </div>
+      <div class="hint">键盘：X / Y / Z（＋Shift 反向）</div>
+    </section>
+
+    <section class="panel actions">
+      <div class="panel-title">操作 · Actions</div>
+      <div class="btn-row">
+        <button id="scramble" class="ghost">打乱 Scramble</button>
+        <button id="reset" class="ghost">复原 Reset</button>
+      </div>
+      <div class="hint">键盘：U D L R F B（＋Shift 逆时针）</div>
+    </section>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

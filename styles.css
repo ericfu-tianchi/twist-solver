@@ -1,0 +1,176 @@
+:root {
+  --bg-0: #0a0c14;
+  --bg-1: #141a2b;
+  --ink: #eef1f7;
+  --muted: #8a93a8;
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-brd: rgba(255, 255, 255, 0.12);
+  --accent: #6ea8ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(120% 90% at 50% -10%, #1c2542 0%, transparent 55%),
+    radial-gradient(90% 70% at 85% 110%, #221a33 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
+  -webkit-font-smoothing: antialiased;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  pointer-events: none;
+  z-index: 10;
+}
+.topbar > * { pointer-events: auto; }
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand .logo {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--accent);
+  filter: drop-shadow(0 2px 10px rgba(110, 168, 255, 0.4));
+}
+.brand h1 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: 0.04em;
+  font-weight: 650;
+}
+.brand p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* free-mode pill toggle */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-brd);
+  background: var(--glass);
+  color: var(--ink);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 13.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.pill .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 0 transparent;
+  transition: all 0.2s ease;
+}
+.pill:hover { border-color: rgba(255,255,255,0.24); }
+.pill.on {
+  border-color: rgba(110, 168, 255, 0.6);
+  background: rgba(110, 168, 255, 0.14);
+}
+.pill.on .dot {
+  background: var(--accent);
+  box-shadow: 0 0 12px 1px rgba(110, 168, 255, 0.8);
+}
+
+/* ---------- bottom dock ---------- */
+.dock {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 18px 20px 26px;
+  z-index: 10;
+}
+
+.panel {
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  border-radius: 18px;
+  padding: 14px 16px 12px;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
+}
+.panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--ink);
+  border-radius: 11px;
+  border: 1px solid var(--glass-brd);
+  transition: transform 0.1s ease, background 0.16s ease, border-color 0.16s ease;
+  user-select: none;
+}
+button:active { transform: translateY(1px) scale(0.98); }
+
+.face {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 52px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.05);
+}
+.face i {
+  width: 13px; height: 13px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.3);
+}
+.face:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255,255,255,0.28); }
+
+.ghost {
+  padding: 9px 14px;
+  font-size: 13.5px;
+  font-weight: 550;
+  background: rgba(255, 255, 255, 0.04);
+}
+.ghost:hover { background: rgba(255, 255, 255, 0.11); border-color: rgba(255,255,255,0.26); }
+
+@media (max-width: 720px) {
+  .brand p { display: none; }
+  .hint { display: none; }
+  .dock { gap: 10px; padding: 12px 10px 18px; }
+}
