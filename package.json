@@ -1,0 +1,11 @@
+{
+  "name": "cubic-solver",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Follow-along Rubik's cube solver (web).",
+  "scripts": {
+    "serve": "python3 -m http.server 8173",
+    "test": "node --test"
+  }
+}
