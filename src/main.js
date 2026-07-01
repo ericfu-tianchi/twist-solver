@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { RubiksCube, UNIT } from './cube.js';
+import { RubiksCube, UNIT, parseMove, COLORS } from './cube.js';
+import { solve } from './solver.js';
 
 const wrap = document.getElementById('scene');
 const W = () => wrap.clientWidth;
@@ -23,7 +24,7 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
-camera.position.set(3.4, 3.6, 8.4);
+camera.position.set(0, 0, 8); // face-on: only the front face is visible by default
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -82,8 +83,10 @@ addEventListener('resize', () => {
   renderer.render(scene, camera);
 })();
 
-// --- free mode toggle -------------------------------------------------------
+// --- interaction gates ------------------------------------------------------
 let freeMode = false;
+let solving = false; // guided solve in progress
+let editing = false; // editor modal open
 const freeToggle = document.getElementById('freeToggle');
 function setFree(on) {
   freeMode = on;
@@ -94,7 +97,7 @@ function setFree(on) {
 freeToggle.addEventListener('click', () => setFree(!freeMode));
 
 // --- recenter: glide the camera back to the default face-on view ------------
-const HOME_POS = new THREE.Vector3(3.4, 3.6, 8.4);
+const HOME_POS = new THREE.Vector3(0, 0, 8); // straight-on front face
 const HOME_TARGET = new THREE.Vector3(0, 0, 0);
 let homing = false;
 function homeView() {
@@ -138,6 +141,13 @@ document.getElementById('reset').addEventListener('click', () => {
 
 addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (editing) { if (e.key === 'Escape') closeEditor(); return; }
+  if (solving) {
+    if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextStep(); }
+    else if (e.key === 'ArrowLeft') prevStep();
+    else if (e.key === 'Escape') exitSolve(false);
+    return;
+  }
   const k = e.key;
   if (/^[udlrfb]$/i.test(k)) cube.move(k.toUpperCase() + (e.shiftKey ? "'" : ''));
   else if (/^[xyz]$/i.test(k)) cube.move(k.toLowerCase() + (e.shiftKey ? "'" : ''));
@@ -172,7 +182,7 @@ function roundToAxis(v) {
 }
 
 renderer.domElement.addEventListener('pointerdown', e => {
-  if (freeMode || cube.isBusy() || e.button !== 0) return;
+  if (freeMode || solving || editing || cube.isBusy() || e.button !== 0) return;
   toNDC(e);
   ray.setFromCamera(ndc, camera);
   const hit = ray.intersectObjects(cube.pickables, false)[0];
@@ -224,3 +234,347 @@ renderer.domElement.addEventListener('pointermove', e => {
     try { renderer.domElement.releasePointerCapture(e.pointerId); } catch { /* noop */ }
   }),
 );
+
+// ===========================================================================
+// Phase 2 — guided solve + cube editor
+// ===========================================================================
+
+// DOM refs
+const dock = document.querySelector('.dock');
+const solvePanel = document.getElementById('solvePanel');
+const solvePhase = document.getElementById('solvePhase');
+const solveMove = document.getElementById('solveMove');
+const solveHint = document.getElementById('solveHint');
+const solveCounter = document.getElementById('solveCounter');
+const solveBar = document.getElementById('solveBar');
+const solvePrev = document.getElementById('solvePrev');
+const solveAuto = document.getElementById('solveAuto');
+const editModal = document.getElementById('editModal');
+const cubeNet = document.getElementById('cubeNet');
+const palette = document.getElementById('palette');
+const editMsg = document.getElementById('editMsg');
+
+// Net layout: for each face, the 9 home cubie positions in display (row-major) order.
+const rows = (rowVals, colVals, mk) => {
+  const a = [];
+  for (const r of rowVals) for (const c of colVals) a.push(mk(r, c));
+  return a;
+};
+const FACELET_POS = {
+  U: rows([-1, 0, 1], [-1, 0, 1], (z, x) => [x, 1, z]),
+  F: rows([1, 0, -1], [-1, 0, 1], (y, x) => [x, y, 1]),
+  R: rows([1, 0, -1], [1, 0, -1], (y, z) => [1, y, z]),
+  L: rows([1, 0, -1], [-1, 0, 1], (y, z) => [-1, y, z]),
+  B: rows([1, 0, -1], [1, 0, -1], (y, x) => [x, y, -1]),
+  D: rows([1, 0, -1], [-1, 0, 1], (z, x) => [x, -1, z]),
+};
+const NET_ORDER = ['U', 'L', 'F', 'R', 'B', 'D'];
+const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
+
+// --- directional arrow ------------------------------------------------------
+const ARROW_MAT = new THREE.MeshStandardMaterial({
+  color: 0xffd84d, emissive: 0xffb000, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0,
+});
+let arrowObj = null;
+
+function clearArrow() {
+  if (arrowObj) {
+    scene.remove(arrowObj);
+    arrowObj.traverse(o => o.geometry?.dispose?.());
+    arrowObj = null;
+  }
+  cube.clearHighlight();
+}
+
+function pulseArrow() {
+  if (!arrowObj) return;
+  ARROW_MAT.emissiveIntensity = 0.5 + 0.35 * Math.sin(performance.now() / 240);
+  requestAnimationFrame(pulseArrow);
+}
+
+function showArrow(token) {
+  clearArrow();
+  const info = parseMove(token);
+  if (!info) return;
+  cube.setHighlight(info.axisKey, info.whole ? null : info.layer);
+  arrowObj = buildArc(info.axisKey, info.whole ? 0 : info.layer, info.sign, info.quarters);
+  scene.add(arrowObj);
+  pulseArrow();
+}
+
+function buildArc(axisKey, layer, sign, quarters) {
+  const g = new THREE.Group();
+  const a = new THREE.Vector3(axisKey === 'x' ? 1 : 0, axisKey === 'y' ? 1 : 0, axisKey === 'z' ? 1 : 0);
+  const helper = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(helper, a).normalize();
+  const v = new THREE.Vector3().crossVectors(a, u).normalize();
+  const R = 2.55;
+  const offset = layer * 1.55;
+  const span = quarters >= 2 ? 2.4 : 1.5; // radians of arc shown
+  const dir = sign >= 0 ? 1 : -1;
+  const th0 = -dir * span / 2;
+  const th1 = dir * span / 2;
+  const P = th => new THREE.Vector3()
+    .addScaledVector(u, R * Math.cos(th))
+    .addScaledVector(v, R * Math.sin(th))
+    .addScaledVector(a, offset);
+  const N = 40;
+  const pts = [];
+  for (let i = 0; i <= N; i++) pts.push(P(th0 + (th1 - th0) * (i / N)));
+  const tube = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.06, 10, false), ARROW_MAT,
+  );
+  g.add(tube);
+  const tip = P(th1);
+  const tangent = new THREE.Vector3()
+    .addScaledVector(u, -Math.sin(th1))
+    .addScaledVector(v, Math.cos(th1))
+    .multiplyScalar(dir).normalize();
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.42, 18), ARROW_MAT);
+  cone.position.copy(tip);
+  cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+  g.add(cone);
+  return g;
+}
+
+// --- human-readable hint for a move ----------------------------------------
+const FACE_CN = {
+  U: '顶层 (上面)', D: '底层 (下面)', L: '左面', R: '右面', F: '前面', B: '后面 (背面)',
+  x: '整个魔方 (绕左右轴)', y: '整个魔方 (绕上下轴)', z: '整个魔方 (绕前后轴)',
+};
+function hintFor(token) {
+  const m = /^([UDLRFBxyz])(['2]?)$/.exec(token);
+  if (!m) return '';
+  const [, sym, mod] = m;
+  const name = FACE_CN[sym] || sym;
+  if (mod === '2') return `${name}　转 180°`;
+  return `${name}　${mod === "'" ? '逆时针' : '顺时针'} 90°`;
+}
+
+// --- orientation normaliser (bring white to top, green to front) -----------
+function orientMoves(state) {
+  const ok = s => s.colorAt([0, 1, 0], [0, 1, 0]) === 'U' && s.colorAt([0, 0, 1], [0, 0, 1]) === 'F';
+  if (ok(state)) return [];
+  const WH = ['x', "x'", 'y', "y'", 'z', "z'"];
+  let frontier = [{ s: state, path: [] }];
+  for (let d = 0; d < 4; d++) {
+    const next = [];
+    for (const { s, path } of frontier) {
+      for (const mv of WH) {
+        const s2 = s.clone().move(mv);
+        if (ok(s2)) return [...path, mv];
+        next.push({ s: s2, path: [...path, mv] });
+      }
+    }
+    frontier = next;
+  }
+  return [];
+}
+
+// --- guided solve controller ------------------------------------------------
+let session = null; // { flat: [{token, phase}], idx, auto, autoTimer }
+const invertToken = t => (t.endsWith('2') ? t : t.endsWith("'") ? t[0] : t + "'");
+
+async function startSolve() {
+  if (solving || editing || cube.isBusy()) return;
+  solving = true;
+  if (freeMode) setFree(false);
+  homeView();
+  // rare: reorient so centres are canonical, so the solver's face moves line up
+  for (const t of orientMoves(cube.getState())) await cube.move(t);
+
+  const state = cube.getState();
+  if (state.isSolved()) { solving = false; toast('已经是还原状态啦 🎉'); return; }
+
+  let steps;
+  try {
+    steps = solve(state).steps;
+  } catch (err) {
+    solving = false;
+    console.error(err);
+    toast('这个状态无法求解，检查一下颜色输入 😅');
+    return;
+  }
+
+  const flat = [];
+  for (const st of steps) for (const mv of st.moves) flat.push({ token: mv, phase: st.name });
+  if (!flat.length) { solving = false; toast('已经是还原状态啦 🎉'); return; }
+
+  session = { flat, idx: 0, auto: false };
+  dock.hidden = true;
+  solvePanel.hidden = false;
+  solveAuto.classList.remove('on');
+  solveAuto.textContent = '自动 ▶';
+  showStep();
+}
+
+function showStep() {
+  const { flat, idx } = session;
+  const cur = flat[idx];
+  solvePhase.textContent = cur.phase;
+  solveMove.textContent = cur.token;
+  solveHint.textContent = hintFor(cur.token);
+  solveCounter.textContent = `第 ${idx + 1} / ${flat.length} 步`;
+  solveBar.style.width = `${(idx / flat.length) * 100}%`;
+  solvePrev.disabled = idx === 0;
+  showArrow(cur.token);
+}
+
+async function nextStep() {
+  if (!session || cube.isBusy()) return;
+  const cur = session.flat[session.idx];
+  clearArrow();
+  await cube.move(cur.token);
+  session.idx++;
+  if (session.idx >= session.flat.length) { solveBar.style.width = '100%'; exitSolve(true); return; }
+  showStep();
+  if (session.auto) session.autoTimer = setTimeout(nextStep, 240);
+}
+
+async function prevStep() {
+  if (!session || cube.isBusy() || session.idx === 0) return;
+  session.idx--;
+  clearArrow();
+  await cube.move(invertToken(session.flat[session.idx].token));
+  showStep();
+}
+
+function toggleAuto() {
+  if (!session) return;
+  session.auto = !session.auto;
+  solveAuto.classList.toggle('on', session.auto);
+  solveAuto.textContent = session.auto ? '暂停 ⏸' : '自动 ▶';
+  if (session.auto && !cube.isBusy()) nextStep();
+}
+
+function exitSolve(finished) {
+  if (session?.autoTimer) clearTimeout(session.autoTimer);
+  clearArrow();
+  session = null;
+  solving = false;
+  solvePanel.hidden = true;
+  dock.hidden = false;
+  if (finished) toast('还原完成，恭喜 🎉');
+}
+
+// --- cube editor ------------------------------------------------------------
+let selColor = 'U';
+let netData = null;
+let netBuilt = false;
+
+function buildEditor() {
+  for (const f of ['U', 'D', 'F', 'B', 'R', 'L']) {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (f === selColor ? ' sel' : '');
+    sw.style.background = hex(f);
+    sw.title = f;
+    sw.addEventListener('click', () => {
+      selColor = f;
+      [...palette.children].forEach(c => c.classList.remove('sel'));
+      sw.classList.add('sel');
+    });
+    palette.appendChild(sw);
+  }
+  for (const face of NET_ORDER) {
+    const fe = document.createElement('div');
+    fe.className = 'net-face ' + face.toLowerCase();
+    for (let idx = 0; idx < 9; idx++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell' + (idx === 4 ? ' center' : '');
+      cell.dataset.face = face;
+      cell.dataset.idx = idx;
+      if (idx !== 4) cell.addEventListener('click', () => setCell(face, idx, selColor));
+      fe.appendChild(cell);
+    }
+    cubeNet.appendChild(fe);
+  }
+  netBuilt = true;
+}
+
+function setCell(face, idx, letter) {
+  netData[face][idx] = letter;
+  cubeNet.querySelector(`.cell[data-face="${face}"][data-idx="${idx}"]`).style.background = hex(letter);
+}
+function renderNet() {
+  for (const face of NET_ORDER)
+    for (let idx = 0; idx < 9; idx++)
+      cubeNet.querySelector(`.cell[data-face="${face}"][data-idx="${idx}"]`).style.background = hex(netData[face][idx]);
+}
+function loadCurrentIntoNet() {
+  for (const face of NET_ORDER)
+    for (let idx = 0; idx < 9; idx++)
+      netData[face][idx] = cube.colorShownAt(face, FACELET_POS[face][idx]) || face;
+}
+
+function openEditor() {
+  if (solving) return;
+  if (!netBuilt) buildEditor();
+  netData = {};
+  for (const f of NET_ORDER) netData[f] = Array(9).fill(f);
+  loadCurrentIntoNet();
+  renderNet();
+  editMsg.textContent = '';
+  editMsg.className = 'edit-msg';
+  editing = true;
+  editModal.hidden = false;
+}
+function closeEditor() { editing = false; editModal.hidden = true; }
+
+function applyEditor() {
+  const count = { U: 0, D: 0, F: 0, B: 0, R: 0, L: 0 };
+  for (const f of NET_ORDER) for (const c of netData[f]) count[c]++;
+  const bad = Object.entries(count).filter(([, n]) => n !== 9);
+  if (bad.length) {
+    editMsg.className = 'edit-msg err';
+    editMsg.textContent = '每种颜色必须正好 9 个：' + bad.map(([c, n]) => `${c}=${n}`).join('  ');
+    return;
+  }
+  // rebuild the cube at home positions, painted with the entered colours
+  cube.dispose();
+  cube = new RubiksCube();
+  scene.add(cube.group);
+  for (const face of NET_ORDER)
+    for (let idx = 0; idx < 9; idx++)
+      cube.paint(face, FACELET_POS[face][idx], netData[face][idx]);
+
+  try {
+    solve(cube.getState()); // solvability check
+  } catch (err) {
+    editMsg.className = 'edit-msg err';
+    editMsg.textContent = '这个配色拼不出可解的魔方，检查一下是不是记错/贴错了某一块。';
+    console.error(err);
+    return;
+  }
+  closeEditor();
+  homeView();
+  toast('已载入你的魔方，点「求解」开始跟练 →');
+}
+
+// --- toast ------------------------------------------------------------------
+let toastEl = null;
+function toast(msg) {
+  if (!toastEl) {
+    toastEl = document.createElement('div');
+    toastEl.className = 'toast';
+    document.body.appendChild(toastEl);
+  }
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastEl._t);
+  toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 2400);
+}
+
+// --- wiring -----------------------------------------------------------------
+document.getElementById('solve').addEventListener('click', startSolve);
+document.getElementById('edit').addEventListener('click', openEditor);
+document.getElementById('solveExit').addEventListener('click', () => exitSolve(false));
+document.getElementById('solveNext').addEventListener('click', nextStep);
+solvePrev.addEventListener('click', prevStep);
+solveAuto.addEventListener('click', toggleAuto);
+document.getElementById('editApply').addEventListener('click', applyEditor);
+document.getElementById('editCancel').addEventListener('click', closeEditor);
+document.getElementById('editLoad').addEventListener('click', () => { loadCurrentIntoNet(); renderNet(); });
+document.getElementById('editReset').addEventListener('click', () => {
+  for (const f of NET_ORDER) netData[f] = Array(9).fill(f);
+  renderNet();
+});
