@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { CubeState } from './state.js';
 
 // --- geometry constants -----------------------------------------------------
 export const UNIT = 1.03;   // distance between neighbouring cubie centres
@@ -30,6 +31,33 @@ const WHOLE = { x: ['x', -1], y: ['y', -1], z: ['z', -1] };
 const HALF = Math.PI / 2;
 const easeInOutCubic = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
+// outward normal of each face, as an integer axis vector
+export const FACE_NORMAL = {
+  U: [0, 1, 0], D: [0, -1, 0], F: [0, 0, 1], B: [0, 0, -1], R: [1, 0, 0], L: [-1, 0, 0],
+};
+
+const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+// rotate an integer vector by s*90deg (right-handed) about the given axis — mirrors state.js
+function rotVec([x, y, z], axis, s) {
+  if (axis === 'x') return [x, -s * z, s * y];
+  if (axis === 'y') return [s * z, y, -s * x];
+  return [-s * y, s * x, z];
+}
+
+/** Parse notation into { sym, axisKey, layer (null=whole cube), sign, quarters, whole }. */
+export function parseMove(token) {
+  const m = /^([UDLRFBxyz])(['2]?)$/.exec(token);
+  if (!m) return null;
+  const [, sym, mod] = m;
+  const quarters = mod === '2' ? 2 : 1;
+  if (WHOLE[sym]) {
+    const [axisKey, base] = WHOLE[sym];
+    return { sym, axisKey, layer: null, sign: mod === "'" ? -base : base, quarters, whole: true };
+  }
+  const [axisKey, layer, base] = FACE[sym];
+  return { sym, axisKey, layer, sign: mod === "'" ? -base : base, quarters, whole: false };
+}
+
 /**
  * A 3x3 Rubik's cube: 27 cubies parented to `group`.
  * Every action is expressed as standard notation and pushed onto a serial
@@ -40,6 +68,9 @@ export class RubiksCube {
     this.group = new THREE.Group();
     this.cubies = [];       // 27 cubie groups
     this.pickables = [];    // meshes usable for raycasting (bodies + stickers)
+    this.state = new CubeState(); // logical model kept in lock-step with the 3D turns
+    this._stickerByHome = new Map(); // "face:x,y,z" -> sticker mesh (for edit mode)
+    this._highlight = [];   // materials whose emissive we boosted, for restore
     this._queue = [];
     this._running = false;
     this.turnDuration = 240; // ms per quarter turn
@@ -87,8 +118,10 @@ export class RubiksCube {
             tile.position.copy(normal).multiplyScalar(0.5);
             tile.receiveShadow = true;
             tile.userData.cubie = cubie;
+            tile.userData.isSticker = true;
             cubie.add(tile);
             this.pickables.push(tile);
+            this._stickerByHome.set(`${face}:${x},${y},${z}`, tile);
           }
 
           this.cubies.push(cubie);
@@ -132,6 +165,43 @@ export class RubiksCube {
 
   isBusy() { return this._running; }
 
+  /** A clone of the current logical state, for the solver. */
+  getState() { return this.state.clone(); }
+
+  /** Colour currently shown at a face's home cell, e.g. colorShownAt('F',[0,0,1]). */
+  colorShownAt(face, pos) { return this.state.colorAt(pos, FACE_NORMAL[face]); }
+
+  /** Paint one sticker (mesh + logical facelet). Only meaningful with pieces at home. */
+  paint(face, pos, letter) {
+    const tile = this._stickerByHome.get(`${face}:${pos.join(',')}`);
+    if (tile) tile.material.color.setHex(COLORS[letter]);
+    const n = FACE_NORMAL[face];
+    const f = this.state.facelets.find(f =>
+      f.n[0] === n[0] && f.n[1] === n[1] && f.n[2] === n[2] &&
+      f.p[0] === pos[0] && f.p[1] === pos[1] && f.p[2] === pos[2]);
+    if (f) f.c = letter;
+  }
+
+  /** Glow the stickers of one layer (or the whole cube if layer===null). */
+  setHighlight(axisKey, layer) {
+    this.clearHighlight();
+    for (const c of this.cubies) {
+      if (layer !== null && Math.round(c.position[axisKey] / UNIT) !== layer) continue;
+      for (const child of c.children) {
+        if (!child.userData.isSticker) continue;
+        const mat = child.material;
+        this._highlight.push({ mat, hex: mat.emissive.getHex(), i: mat.emissiveIntensity });
+        mat.emissive.setHex(0xffffff);
+        mat.emissiveIntensity = 0.32;
+      }
+    }
+  }
+
+  clearHighlight() {
+    for (const h of this._highlight) { h.mat.emissive.setHex(h.hex); h.mat.emissiveIntensity = h.i; }
+    this._highlight.length = 0;
+  }
+
   dispose() {
     this._queue.length = 0;
     this.group.traverse(o => {
@@ -161,6 +231,15 @@ export class RubiksCube {
   }
 
   async _run(layer, axisKey, sign, quarters) {
+    // keep the logical model in sync with the visual turn
+    const ai = AXIS_INDEX[axisKey];
+    for (let t = 0; t < quarters; t++)
+      for (const f of this.state.facelets)
+        if (layer === null || f.p[ai] === layer) {
+          f.p = rotVec(f.p, axisKey, sign);
+          f.n = rotVec(f.n, axisKey, sign);
+        }
+
     const pivot = new THREE.Group();
     this.group.add(pivot);
 

@@ -68,9 +68,53 @@
       <div class="btn-row">
         <button id="scramble" class="ghost">打乱 Scramble</button>
         <button id="reset" class="ghost">复原 Reset</button>
+        <button id="edit" class="ghost">编辑 Edit</button>
+        <button id="solve" class="primary">求解 Solve →</button>
       </div>
-      <div class="hint">键盘：U D L R F B（＋Shift 逆时针）</div>
+      <div class="hint">「编辑」填入你真实魔方的颜色，或「打乱」后直接「求解」跟着做</div>
     </section>
+  </div>
+
+  <!-- guided solve panel -->
+  <div id="solvePanel" class="solve-panel" hidden>
+    <div class="solve-head">
+      <span id="solvePhase" class="solve-phase">—</span>
+      <button id="solveExit" class="mini" title="退出引导">退出 ✕</button>
+    </div>
+    <div class="solve-body">
+      <div id="solveMove" class="solve-move">R</div>
+      <div class="solve-copy">
+        <div id="solveHint" class="solve-hint">跟着箭头拧这一层</div>
+        <div id="solveCounter" class="solve-counter">第 1 / 1 步</div>
+      </div>
+    </div>
+    <div class="solve-progress"><div id="solveBar" class="solve-bar"></div></div>
+    <div class="solve-foot">
+      <button id="solvePrev" class="ghost">← 上一步</button>
+      <button id="solveAuto" class="ghost">自动 ▶</button>
+      <button id="solveNext" class="primary">做好了 · 下一步 →</button>
+    </div>
+  </div>
+
+  <!-- cube editor -->
+  <div id="editModal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>编辑你的魔方 · Enter your cube</h2>
+      <p class="modal-sub">选一个颜色，点格子涂色。中心块固定。把手上魔方六个面的颜色照着填进来，然后「校验并应用」。</p>
+      <div class="editor">
+        <div id="cubeNet" class="cube-net"></div>
+        <div class="editor-side">
+          <div class="palette" id="palette"></div>
+          <div id="editMsg" class="edit-msg"></div>
+          <div class="editor-actions">
+            <button id="editLoad" class="ghost">载入当前</button>
+            <button id="editReset" class="ghost">重置为已还原</button>
+            <button id="editCancel" class="ghost">取消</button>
+            <button id="editApply" class="primary">校验并应用</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="./src/main.js"></script>
