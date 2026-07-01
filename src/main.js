@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RubiksCube, UNIT, parseMove, COLORS } from './cube.js';
-import { solve } from './solver.js';
+// solver.js is imported lazily (see ensureSolver) so the cube + editor still
+// work even while the solver module is being finalised.
 
 const wrap = document.getElementById('scene');
 const W = () => wrap.clientWidth;
@@ -375,6 +376,12 @@ function orientMoves(state) {
 let session = null; // { flat: [{token, phase}], idx, auto, autoTimer }
 const invertToken = t => (t.endsWith('2') ? t : t.endsWith("'") ? t[0] : t + "'");
 
+let solveFn = null;
+async function ensureSolver() {
+  if (!solveFn) ({ solve: solveFn } = await import('./solver.js'));
+  return solveFn;
+}
+
 async function startSolve() {
   if (solving || editing || cube.isBusy()) return;
   solving = true;
@@ -388,6 +395,7 @@ async function startSolve() {
 
   let steps;
   try {
+    const solve = await ensureSolver();
     steps = solve(state).steps;
   } catch (err) {
     solving = false;
@@ -520,7 +528,7 @@ function openEditor() {
 }
 function closeEditor() { editing = false; editModal.hidden = true; }
 
-function applyEditor() {
+async function applyEditor() {
   const count = { U: 0, D: 0, F: 0, B: 0, R: 0, L: 0 };
   for (const f of NET_ORDER) for (const c of netData[f]) count[c]++;
   const bad = Object.entries(count).filter(([, n]) => n !== 9);
@@ -538,6 +546,7 @@ function applyEditor() {
       cube.paint(face, FACELET_POS[face][idx], netData[face][idx]);
 
   try {
+    const solve = await ensureSolver();
     solve(cube.getState()); // solvability check
   } catch (err) {
     editMsg.className = 'edit-msg err';
