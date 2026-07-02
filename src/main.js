@@ -565,8 +565,16 @@ async function startSolve() {
     return;
   }
 
+  // split every 180° move into two clean 90° steps — the eye can't tell 90° from
+  // 180° at a glance, so each guided step is a single unambiguous quarter turn.
   const flat = [];
-  for (const st of steps) for (const mv of st.moves) flat.push({ token: mv, phase: st.name });
+  for (const st of steps) for (const mv of st.moves) {
+    if (mv.endsWith('2')) {
+      flat.push({ token: mv[0], phase: st.name }, { token: mv[0], phase: st.name });
+    } else {
+      flat.push({ token: mv, phase: st.name });
+    }
+  }
   if (!flat.length) { solving = false; toast('已经是还原状态啦 🎉'); return; }
 
   session = { flat, idx: 0, auto: false };
