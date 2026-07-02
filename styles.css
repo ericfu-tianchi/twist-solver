@@ -209,6 +209,7 @@ button:active { transform: translateY(1px) scale(0.98); }
   box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.8);
 }
 .solve-head { display: flex; justify-content: space-between; align-items: center; }
+.solve-head-btns { display: flex; gap: 6px; }
 .solve-phase {
   font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--accent); font-weight: 600;
