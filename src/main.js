@@ -118,6 +118,7 @@ function setFree(on) {
   freeMode = on;
   freeToggle.classList.toggle('on', on);
   freeToggle.setAttribute('aria-pressed', String(on));
+  renderer.domElement.style.cursor = on ? 'grab' : ''; // hand cursor signals Free mode
 }
 freeToggle.addEventListener('click', () => setFree(!freeMode));
 
@@ -234,7 +235,12 @@ function roundToAxis(v) {
 
 renderer.domElement.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
-  if (freeMode) { orbiting = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); return; }
+  if (freeMode) {
+    orbiting = { x: e.clientX, y: e.clientY };
+    renderer.domElement.style.cursor = 'grabbing'; // closed fist while dragging
+    renderer.domElement.setPointerCapture(e.pointerId);
+    return;
+  }
   if (solving || editing || cube.isBusy()) return;
   toNDC(e);
   ray.setFromCamera(ndc, camera);
@@ -291,6 +297,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   renderer.domElement.addEventListener(ev, e => {
     drag = null;
     orbiting = null;
+    if (freeMode) renderer.domElement.style.cursor = 'grab'; // back to open hand
     try { renderer.domElement.releasePointerCapture(e.pointerId); } catch { /* noop */ }
   }),
 );
