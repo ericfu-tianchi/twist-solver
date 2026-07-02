@@ -59,11 +59,12 @@ Location: `~/Desktop/cubic-solver` (git repo, branch `main`). Zero-build static 
    hidden faces. Confirmed working across all 6 turns (see arrow-lab5.html). The app still has the OLD floating
    curved-arc arrow — replace it.
    - Arrow glyph = clean solid arrow (shaft + triangle head).
-   - Arrow **colour = PENDING Eric's pick** among: #1 black, #5 black + white outline (rec), #6 white + black
-     outline. (Yellow blends on warm/white stickers.) See arrow-lab6.html.
+   - Arrow **colour = BLACK** (Eric's pick, arrow-lab6.html #1). Solid black reads cleanest on the bright
+     active-layer stickers (like his reference photo). If it ever blends on a dark sticker, add a thin white
+     outline as a fallback — but default is plain black.
 
 ## Open TODOs (priority order)
-1. Get Eric's arrow-colour pick, then **integrate the per-sticker motion arrows + highlight-C into the app**
+1. **Integrate the per-sticker motion arrows (solid, BLACK) + highlight-C into the app**
    (generalize for any move at the locked solve view; replace `buildArc`/`showArrow` and `cube.setHighlight`).
    For Back (B) turns few side stickers are visible from the solve 3/4 — okay to tilt the view a touch just for B.
    Screenshot-verify each turn.
