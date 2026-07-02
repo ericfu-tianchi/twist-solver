@@ -191,8 +191,8 @@ export class RubiksCube {
         if (!child.userData.isSticker) continue;
         const mat = child.material;
         this._highlight.push({ mat, hex: mat.emissive.getHex(), i: mat.emissiveIntensity });
-        mat.emissive.setHex(0xff9d10); // warm amber glow, matching the arrow
-        mat.emissiveIntensity = 0.5;
+        mat.emissive.copy(mat.color); // glow in the sticker's OWN colour so the hue stays legible
+        mat.emissiveIntensity = 0.35;
       }
     }
   }

@@ -30,10 +30,14 @@ const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
 // right — the conventional way a cube is depicted (F + U + R all visible).
 const TARGET = new THREE.Vector3(0, 0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
-const HERO = new THREE.Vector3(4.4, 3.6, 6.6);
+// FRONT_VIEW: dead-on the front (green) face — the "正对" / recenter / default view.
+// SOLVE_VIEW: a fixed 3/4 (green front, white top, red right) that stays LOCKED for
+// the whole guided solve, so every arrow (even a Back turn) reads without moving.
+const FRONT_VIEW = new THREE.Vector3(0, 0, 8);
+const SOLVE_VIEW = new THREE.Vector3(4.6, 3.7, 6.4);
 const MIN_DIST = 5;
 const MAX_DIST = 18;
-camera.position.copy(HERO);
+camera.position.copy(FRONT_VIEW);
 camera.lookAt(TARGET);
 
 function dolly(factor) {
@@ -130,7 +134,7 @@ function homeView() {
     if (start === null) start = ts;
     const t = Math.min(1, (ts - start) / dur);
     const k = ease(t);
-    camera.position.lerpVectors(p0, HERO, k);
+    camera.position.lerpVectors(p0, FRONT_VIEW, k);
     camera.up.lerpVectors(up0, UP, k).normalize();
     camera.lookAt(TARGET);
     if (t < 1) requestAnimationFrame(step);
@@ -335,14 +339,11 @@ const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 // --- directional arrow ------------------------------------------------------
 const ARROW_MAT = new THREE.MeshStandardMaterial({
   color: 0xfff1c2, emissive: 0xff9d10, emissiveIntensity: 0.9,
-  roughness: 0.28, metalness: 0.0, toneMapped: false, // bypass tone-map so it glows
+  roughness: 0.28, metalness: 0.0, toneMapped: false, // glow, and...
+  depthTest: false, depthWrite: false,                // ...always draw on top, so even a Back arrow shows
 });
 let arrowObj = null;
 let camMoving = false;
-// From the front hero view, every arrow reads clearly (they arc outside the cube)
-// EXCEPT a Back turn, which sits behind the cube. So only Back tilts the camera;
-// any other move returns to / stays at the front. Minimal, non-dizzying motion.
-const BACK_VIEW = new THREE.Vector3(3.0, 2.6, -7.2);
 
 function clearArrow() {
   if (arrowObj) {
@@ -357,10 +358,10 @@ function clearArrow() {
 function animateArrow() {
   if (!arrowObj) return;
   const now = performance.now();
-  const b = 0.5 + 0.5 * Math.sin(now / 340);
-  ARROW_MAT.emissiveIntensity = 0.65 + 0.4 * b;
-  arrowObj.scale.setScalar(1 + 0.035 * b);
-  cube.pulseHighlight(0.25 + 0.6 * b);
+  const b = 0.5 + 0.5 * Math.sin(now / 380);
+  ARROW_MAT.emissiveIntensity = 0.6 + 0.35 * b;
+  arrowObj.scale.setScalar(1 + 0.03 * b);
+  cube.pulseHighlight(0.12 + 0.4 * b); // gentle own-colour breathing (0.12–0.52)
   requestAnimationFrame(animateArrow);
 }
 
@@ -395,6 +396,7 @@ function buildArc(axisKey, layer, sign, quarters) {
   const tube = new THREE.Mesh(
     new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 72, 0.075, 14, false), ARROW_MAT,
   );
+  tube.renderOrder = 999;
   g.add(tube);
   const tip = P(th1);
   const tangent = new THREE.Vector3()
@@ -404,22 +406,11 @@ function buildArc(axisKey, layer, sign, quarters) {
   const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.56, 24), ARROW_MAT);
   head.position.copy(tip);
   head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+  head.renderOrder = 999;
   g.add(head);
   return g;
 }
 
-// --- camera: only a Back turn is hidden; everything else stays on the front --
-function activeNormal(token) {
-  const info = parseMove(token);
-  if (!info || info.whole || info.layer === 0) return null;
-  const base = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[info.axisKey];
-  return base.map(c => c * info.layer); // outward normal of the turning layer
-}
-function desiredView(token) {
-  const n = activeNormal(token);
-  if (n && n[2] === -1) return BACK_VIEW; // a Back-face turn sits behind the cube
-  return HERO;                            // everything else reads fine from the front
-}
 function orbitCameraTo(target, dur = 620) {
   return new Promise(resolve => {
     camMoving = true;
@@ -531,7 +522,7 @@ async function startSolve() {
   solvePanel.hidden = false;
   solveAuto.classList.remove('on');
   solveAuto.textContent = '自动 ▶';
-  await orbitCameraTo(HERO); // start from the standard front view
+  await orbitCameraTo(SOLVE_VIEW); // lock to the fixed 3/4 for the whole solve
   await showStep();
 }
 
@@ -544,10 +535,7 @@ async function showStep() {
   solveCounter.textContent = `第 ${idx + 1} / ${flat.length} 步`;
   solveBar.style.width = `${(idx / flat.length) * 100}%`;
   solvePrev.disabled = idx === 0;
-  // glide to the right viewpoint: reveal a hidden face, or return to the front base
-  const target = desiredView(cur.token);
-  if (camera.position.distanceTo(target) > 0.5) await orbitCameraTo(target);
-  if (session && session.flat[session.idx] === cur) showArrow(cur.token); // still on this step?
+  showArrow(cur.token); // camera stays locked at SOLVE_VIEW for the whole solve
 }
 
 async function nextStep() {
