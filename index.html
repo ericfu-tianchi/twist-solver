@@ -9,7 +9,9 @@
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "cubejs": "https://esm.sh/cubejs@1.3.2",
+      "cubejs/lib/solve.js": "https://esm.sh/cubejs@1.3.2/lib/solve.js"
     }
   }
   </script>
@@ -71,6 +73,11 @@
 
     <section class="panel actions">
       <div class="panel-title">操作 · Actions</div>
+      <div class="method-row">
+        <span>方法</span>
+        <button class="modebtn on" data-mode="short">最短 · ~20步</button>
+        <button class="modebtn" data-mode="basic">基础 · ~130步</button>
+      </div>
       <div class="btn-row">
         <button id="scramble" class="ghost">打乱 Scramble</button>
         <button id="reset" class="ghost">复原 Reset</button>
