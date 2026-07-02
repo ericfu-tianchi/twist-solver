@@ -79,29 +79,36 @@
       return g;
     }
 
-    // fade every cubie EXCEPT the whole turning layer (the top row/layer here) — a
-    // U turn rotates all 9 top cubies: the top face AND the ring of side stickers.
-    function fadeCube(cube, fn) {
+    const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+    function hslAdj(c, sMul, lMul) { const h = {}; c.getHSL(h); c.setHSL(h.h, clamp(h.s * sMul, 0, 1), clamp(h.l * lMul, 0, 1)); }
+    const COOL = new THREE.Color(0x2b3242);
+
+    // mute the two non-turning layers; optionally enrich / glow the turning layer.
+    // Active = the WHOLE turning layer (top face + the side ring). Returns glow mats.
+    function applyStyle(cube, v) {
+      const glow = [];
       cube.cubies.forEach(cu => {
-        if (Math.round(cu.position.y / UNIT) === 1) return; // whole top layer keeps full colour
-        cu.children.forEach(ch => { if (ch.userData.isSticker) fn(ch.material.color); });
+        const active = Math.round(cu.position.y / UNIT) === 1;
+        cu.children.forEach(ch => {
+          if (!ch.userData.isSticker) return;
+          if (active) {
+            if (v.active) v.active(ch.material);
+            if (v.glow) { ch.material.emissive.copy(ch.material.color); glow.push(ch.material); }
+          } else v.fade(ch.material.color);
+        });
       });
+      return glow;
     }
-    const WHITE = new THREE.Color(0xffffff);
-    const towardWhite = a => c => c.lerp(WHITE.clone(), a);
-    const desat = a => c => { const h = {}; c.getHSL(h); c.setHSL(h.h, h.s * (1 - a), h.l); };
-    const darken = a => c => c.multiplyScalar(1 - a);
-    const combo = (...fns) => c => fns.forEach(f => f(c));
 
     const VARIANTS = [
-      { name: '淡白 · 轻 (35%)', desc: '非转动面向白色淡化 35%', fn: towardWhite(0.35) },
-      { name: '淡白 · 中 (55%)', desc: '向白色淡化 55%', fn: towardWhite(0.55) },
-      { name: '淡白 · 重 (72%)', desc: '向白色淡化 72%(接近你的参考图)', fn: towardWhite(0.72) },
-      { name: '去饱和 · 中 (55%)', desc: '降低饱和度 55%,亮度不变', fn: desat(0.55) },
-      { name: '去饱和 · 重 (78%)', desc: '降低饱和度 78%', fn: desat(0.78) },
-      { name: '变暗 · 中 (45%)', desc: '整体压暗 45%', fn: darken(0.45) },
-      { name: '去饱和 + 淡白', desc: '饱和 -60% 再向白淡化 25%(柔和干净)', fn: combo(desat(0.6), towardWhite(0.25)) },
-      { name: '去饱和 + 变暗', desc: '饱和 -50% + 压暗 28%(沉稳对比)', fn: combo(desat(0.5), darken(0.28)) },
+      { name: '柔雅 · 轻', desc: '其余层去饱和·微暗;活动层保留原色', fade: c => hslAdj(c, 0.5, 0.82) },
+      { name: '柔雅 · 活动层提亮', desc: '活动层更饱更亮一点,主动跳出', fade: c => hslAdj(c, 0.5, 0.8), active: m => hslAdj(m.color, 1.08, 1.06) },
+      { name: '沉稳', desc: '其余层去饱和 + 压暗,层次沉稳', fade: c => hslAdj(c, 0.4, 0.62), active: m => hslAdj(m.color, 1.05, 1.0) },
+      { name: '沉稳 · 活动层发光', desc: '活动层按自身颜色微微发光', fade: c => hslAdj(c, 0.42, 0.6), active: m => hslAdj(m.color, 1.05, 1.02), glow: true },
+      { name: '冷调背景', desc: '其余层去饱和并偏冷灰,活动层跳出', fade: c => { hslAdj(c, 0.45, 0.75); c.lerp(COOL.clone(), 0.22); } },
+      { name: '高对比 · 可读', desc: '其余层更暗,活动层加饱加亮,对比最大', fade: c => hslAdj(c, 0.55, 0.55), active: m => hslAdj(m.color, 1.14, 1.07) },
+      { name: '电影感发光', desc: '其余层压暗去饱,活动层自身色发光', fade: c => hslAdj(c, 0.5, 0.5), active: m => hslAdj(m.color, 1.08, 1.03), glow: true },
+      { name: '极简高级', desc: '其余层很淡很柔,活动层原色 + 极轻发光', fade: c => hslAdj(c, 0.35, 0.8), active: m => hslAdj(m.color, 1.04, 1.0), glow: true },
     ];
 
     const grid = document.getElementById('grid');
@@ -129,12 +136,12 @@
       controls.enableDamping = true; controls.target.set(0, 0, 0);
 
       const cube = new RubiksCube();
-      scrambleColours(cube);        // colourful, like a real solve
-      fadeCube(cube, variant.fn);   // keep the top face full colour, fade the rest
+      scrambleColours(cube);                        // colourful, like a real solve
+      const glowMats = applyStyle(cube, variant);   // mute other layers; treat the active layer
       scene.add(cube.group);
       const a = arc(glowMat(YELLOW)); cube.group.add(a);
 
-      views.push({ renderer, scene, camera, controls, canvas, a });
+      views.push({ renderer, scene, camera, controls, canvas, a, glowMats });
     });
 
     function resize(v) {
@@ -145,10 +152,11 @@
     }
     (function loop() {
       requestAnimationFrame(loop);
-      const b = 0.7 + 0.35 * (0.5 + 0.5 * Math.sin(performance.now() / 360));
+      const b = 0.5 + 0.5 * Math.sin(performance.now() / 360);
       for (const v of views) {
         resize(v); v.controls.update();
-        v.a.traverse(o => o.material && (o.material.emissiveIntensity = b));
+        v.a.traverse(o => o.material && (o.material.emissiveIntensity = 0.7 + 0.35 * b));
+        v.glowMats.forEach(m => m.emissiveIntensity = 0.06 + 0.16 * b);
         v.renderer.render(v.scene, v.camera);
       }
     })();
