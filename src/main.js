@@ -339,9 +339,15 @@ const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 
 // --- directional arrow ------------------------------------------------------
 const ARROW_MAT = new THREE.MeshStandardMaterial({
-  color: 0xfff1c2, emissive: 0xff9d10, emissiveIntensity: 0.9,
-  roughness: 0.28, metalness: 0.0, toneMapped: false, // glow, and...
-  depthTest: false, depthWrite: false,                // ...always draw on top, so even a Back arrow shows
+  color: 0xfff1c2, emissive: 0xff9d10, emissiveIntensity: 0.95,
+  roughness: 0.28, metalness: 0.0, toneMapped: false,
+  depthTest: false, depthWrite: false, // always on top so a Back arrow is never occluded
+});
+// bright frame around the turning face — marks WHICH face without touching any sticker colour
+const FRAME_MAT = new THREE.MeshStandardMaterial({
+  color: 0xffe08a, emissive: 0xffb020, emissiveIntensity: 1.0,
+  roughness: 0.3, metalness: 0.0, toneMapped: false,
+  depthTest: false, depthWrite: false,
 });
 let arrowObj = null;
 let camMoving = false;
@@ -352,63 +358,91 @@ function clearArrow() {
     arrowObj.traverse(o => o.geometry?.dispose?.());
     arrowObj = null;
   }
-  cube.clearHighlight();
 }
 
-// gentle breathing glow on the arrow and the highlighted layer (no crude redraw)
+// breathing glow on the arrow + face frame (colours of the cube are untouched)
 function animateArrow() {
   if (!arrowObj) return;
-  const now = performance.now();
-  const b = 0.5 + 0.5 * Math.sin(now / 380);
-  ARROW_MAT.emissiveIntensity = 0.6 + 0.35 * b;
-  arrowObj.scale.setScalar(1 + 0.03 * b);
-  cube.pulseHighlight(0.12 + 0.4 * b); // gentle own-colour breathing (0.12–0.52)
+  const b = 0.5 + 0.5 * Math.sin(performance.now() / 360);
+  ARROW_MAT.emissiveIntensity = 0.7 + 0.4 * b;
+  FRAME_MAT.emissiveIntensity = 0.7 + 0.6 * b;
   requestAnimationFrame(animateArrow);
 }
 
 function showArrow(token) {
   clearArrow();
   const info = parseMove(token);
-  if (!info) return;
-  cube.setHighlight(info.axisKey, info.whole ? null : info.layer);
-  arrowObj = buildArc(info.axisKey, info.whole ? 0 : info.layer, info.sign, info.quarters);
+  if (!info || info.whole) return;
+  arrowObj = new THREE.Group();
+  arrowObj.add(buildFaceFrame(info.axisKey, info.layer));       // which face
+  arrowObj.add(buildArc(info.axisKey, info.layer, info.sign));  // which direction
   cube.group.add(arrowObj); // child of the cube so it scales with the size slider
   animateArrow();
 }
 
-function buildArc(axisKey, layer, sign, quarters) {
-  const g = new THREE.Group();
+function faceBasis(axisKey) {
   const a = new THREE.Vector3(axisKey === 'x' ? 1 : 0, axisKey === 'y' ? 1 : 0, axisKey === 'z' ? 1 : 0);
   const helper = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(helper, a).normalize();
   const v = new THREE.Vector3().crossVectors(a, u).normalize();
-  const R = 2.6;
-  const offset = layer * 1.5;
-  const span = quarters >= 2 ? 2.4 : 1.55; // radians of arc shown
+  return { a, u, v };
+}
+
+// a curved arrow placed on the part of the layer that faces the (locked) camera,
+// so the turn direction reads at a glance
+function buildArc(axisKey, layer, sign) {
+  const g = new THREE.Group();
+  const { a, u, v } = faceBasis(axisKey);
+  const R = 1.75;
+  const offset = layer * 1.55;
+  // angle that faces the camera, so the arc sits on the visible side of the layer
+  const faceCenterW = a.clone().multiplyScalar(offset * cubeScale).add(cube.group.position);
+  const camDir = camera.position.clone().sub(faceCenterW);
+  const thCam = Math.atan2(camDir.dot(v), camDir.dot(u));
   const dir = sign >= 0 ? 1 : -1;
-  const th0 = -dir * span / 2;
-  const th1 = dir * span / 2;
-  const P = th => new THREE.Vector3()
+  const span = 2.0; // ~115°
+  const th0 = thCam - dir * span / 2;
+  const th1 = thCam + dir * span / 2;
+  const P = th => a.clone().multiplyScalar(offset)
     .addScaledVector(u, R * Math.cos(th))
-    .addScaledVector(v, R * Math.sin(th))
-    .addScaledVector(a, offset);
+    .addScaledVector(v, R * Math.sin(th));
   const pts = [];
-  for (let i = 0; i <= 48; i++) pts.push(P(th0 + (th1 - th0) * (i / 48)));
+  for (let i = 0; i <= 40; i++) pts.push(P(th0 + (th1 - th0) * (i / 40)));
   const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 72, 0.075, 14, false), ARROW_MAT,
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.085, 14, false), ARROW_MAT,
   );
-  tube.renderOrder = 999;
+  tube.renderOrder = 1000;
   g.add(tube);
   const tip = P(th1);
   const tangent = new THREE.Vector3()
     .addScaledVector(u, -Math.sin(th1))
     .addScaledVector(v, Math.cos(th1))
     .multiplyScalar(dir).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.56, 24), ARROW_MAT);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.62, 24), ARROW_MAT);
   head.position.copy(tip);
   head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-  head.renderOrder = 999;
+  head.renderOrder = 1000;
   g.add(head);
+  return g;
+}
+
+// glowing square frame hugging the outer face of the turning layer
+function buildFaceFrame(axisKey, layer) {
+  const g = new THREE.Group();
+  const { a, u, v } = faceBasis(axisKey);
+  const S = 1.52;
+  const off = layer * 1.58;
+  const corner = (su, sv) => a.clone().multiplyScalar(off).addScaledVector(u, su * S).addScaledVector(v, sv * S);
+  const cs = [corner(1, 1), corner(-1, 1), corner(-1, -1), corner(1, -1)];
+  for (let i = 0; i < 4; i++) {
+    const p1 = cs[i], p2 = cs[(i + 1) % 4];
+    const d = p2.clone().sub(p1);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, d.length() + 0.11), FRAME_MAT);
+    bar.position.copy(p1).add(p2).multiplyScalar(0.5);
+    bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.normalize());
+    bar.renderOrder = 1000;
+    g.add(bar);
+  }
   return g;
 }
 
