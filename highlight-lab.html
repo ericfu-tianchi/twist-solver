@@ -65,17 +65,32 @@
       return new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: i,
         roughness: 0.3, metalness: 0, toneMapped: false, depthTest: false, depthWrite: false });
     }
-    function arc(mat, { R = 1.7, span = 2.0, thick = 0.085 } = {}) {
-      const g = new THREE.Group();
-      const th0 = TH_CAM - DIR * span / 2, th1 = TH_CAM + DIR * span / 2;
-      const P = th => new THREE.Vector3(R * Math.cos(th), FACE_Y, R * Math.sin(th));
-      const pts = []; for (let i = 0; i <= 40; i++) pts.push(P(th0 + (th1 - th0) * i / 40));
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, thick, 12, false), mat);
-      tube.renderOrder = 20; g.add(tube);
-      const tan = new THREE.Vector3(-Math.sin(th1), 0, Math.cos(th1)).multiplyScalar(DIR).normalize();
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.62, 22), mat);
-      head.renderOrder = 20; head.position.copy(P(th1));
-      head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan); g.add(head);
+    // a flat, clean curved-arrow icon (band + tapered head) that FLOATS above the
+    // face — never touching a sticker. Built from a precise Shape, not primitives.
+    function arc() {
+      const MAT = new THREE.MeshStandardMaterial({
+        color: 0xffce1f, emissive: 0xffb200, emissiveIntensity: 0.9,
+        roughness: 0.34, metalness: 0, toneMapped: false, side: THREE.DoubleSide,
+      });
+      const RI = 1.56, RO = 1.78, WING = 0.17, SWEEP = 2.4, HEAD = 0.52, FLOAT = 1.84;
+      const a0 = TH_CAM - DIR * SWEEP / 2, a1 = TH_CAM + DIR * SWEEP / 2, aH = a1 - DIR * HEAD;
+      const s = new THREE.Shape();
+      const N = 28;
+      s.moveTo(RO * Math.cos(a0), RO * Math.sin(a0));
+      for (let i = 1; i <= N; i++) { const a = a0 + (aH - a0) * i / N; s.lineTo(RO * Math.cos(a), RO * Math.sin(a)); }
+      s.lineTo((RO + WING) * Math.cos(aH), (RO + WING) * Math.sin(aH));   // head outer wing
+      const rm = (RI + RO) / 2;
+      s.lineTo(rm * Math.cos(a1), rm * Math.sin(a1));                     // head tip
+      s.lineTo((RI - WING) * Math.cos(aH), (RI - WING) * Math.sin(aH));   // head inner wing
+      for (let i = 0; i <= N; i++) { const a = aH + (a0 - aH) * i / N; s.lineTo(RI * Math.cos(a), RI * Math.sin(a)); }
+      s.closePath();
+      const geo = new THREE.ExtrudeGeometry(s, { depth: 0.05, bevelEnabled: false });
+      geo.translate(0, 0, -0.025);
+      const mesh = new THREE.Mesh(geo, MAT);
+      mesh.quaternion.setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0)));
+      mesh.position.set(0, FLOAT, 0); // hover well above the top face
+      const g = new THREE.Group(); g.add(mesh);
       return g;
     }
 
@@ -137,7 +152,7 @@
       scrambleColours(cube);                        // colourful, like a real solve
       const glowMats = applyStyle(cube, variant);   // mute other layers; treat the active layer
       scene.add(cube.group);
-      const a = arc(glowMat(YELLOW)); cube.group.add(a);
+      const a = arc(); cube.group.add(a);
 
       views.push({ renderer, scene, camera, controls, canvas, a, glowMats });
     });
