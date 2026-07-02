@@ -17,6 +17,12 @@
 <body>
   <div id="scene"></div>
 
+  <div class="size-rail" title="魔方大小">
+    <span>大</span>
+    <input id="sizeSlider" type="range" min="0.5" max="1.2" step="0.02" />
+    <span>小</span>
+  </div>
+
   <header class="topbar">
     <div class="brand">
       <span class="logo">◧</span>
@@ -89,6 +95,12 @@
       </div>
     </div>
     <div class="solve-progress"><div id="solveBar" class="solve-bar"></div></div>
+    <div class="solve-speed">
+      <span>自动速度</span>
+      <button class="speed" data-speed="0.5">0.5×</button>
+      <button class="speed on" data-speed="1">1×</button>
+      <button class="speed" data-speed="2">2×</button>
+    </div>
     <div class="solve-foot">
       <button id="solvePrev" class="ghost">← 上一步</button>
       <button id="solveAuto" class="ghost">自动 ▶</button>
