@@ -40,9 +40,26 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { RubiksCube, UNIT } from './src/cube.js';
+    import { RubiksCube, UNIT, COLORS } from './src/cube.js';
+    import { CubeState, randomScramble } from './src/state.js';
 
     const FACE_Y = 1.5, TH_CAM = Math.atan2(6, 3.6), DIR = -1, YELLOW = 0xffc21a;
+    const SCRAMBLE = randomScramble(18); // one shared scramble so all cells are comparable
+
+    // recolour a home-position cube to show a scrambled state (so the rotating face
+    // has vivid mixed colours — the whole point of the contrast highlight)
+    function scrambleColours(cube) {
+      const st = new CubeState().moves(SCRAMBLE);
+      cube.cubies.forEach(cu => {
+        const p = [Math.round(cu.position.x / UNIT), Math.round(cu.position.y / UNIT), Math.round(cu.position.z / UNIT)];
+        cu.children.forEach(ch => {
+          if (!ch.userData.isSticker) return;
+          const n = [Math.round(ch.position.x * 2), Math.round(ch.position.y * 2), Math.round(ch.position.z * 2)];
+          const letter = st.colorAt(p, n);
+          if (letter) ch.material.color.setHex(COLORS[letter]);
+        });
+      });
+    }
 
     function glowMat(hex, i = 0.95) {
       return new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: i,
@@ -111,7 +128,8 @@
       controls.enableDamping = true; controls.target.set(0, 0, 0);
 
       const cube = new RubiksCube();
-      fadeCube(cube, variant.fn);
+      scrambleColours(cube);        // colourful, like a real solve
+      fadeCube(cube, variant.fn);   // keep the top face full colour, fade the rest
       scene.add(cube.group);
       const a = arc(glowMat(YELLOW)); cube.group.add(a);
 
