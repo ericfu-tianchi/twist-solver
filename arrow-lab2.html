@@ -84,16 +84,19 @@
     }
     const P = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
 
-    // symmetric ribbon arc + tapered head, built as one Shape
-    function ribbon({ R = 1.5, band = 0.22, span = 3.5, headLen = 0.55, wing = 0.2, widthAt = null, N = 34 } = {}) {
-      const a0 = AF - DIR * span / 2, a1 = AF + DIR * span / 2, aH = a1 - DIR * headLen;
+    const FLOAT = 1.66;      // just above the top stickers (1.5) — hovers, never touches
+    const HEAD_A = 1.7;      // head sits near the front (visible); ring sweeps CW back to it
+    // flat ring/arc ribbon lying in the top-face plane; head at a1 (tangent → spin direction)
+    function ribbon({ R = 1.18, band = 0.16, a0, a1, headLen = 0.5, wing = 0.19, widthAt = null, N = 44 }) {
+      const dir = Math.sign(a1 - a0);
+      const aH = a1 - dir * headLen;
       const w = widthAt || (() => band);
-      const s = new THREE.Shape();
       const ro = f => R + w(f) / 2, ri = f => R - w(f) / 2;
+      const s = new THREE.Shape();
       s.moveTo(...P(ro(0), a0));
       for (let i = 1; i <= N; i++) { const f = i / N; s.lineTo(...P(ro(f), a0 + (aH - a0) * f)); }
       s.lineTo(...P(ro(1) + wing, aH));
-      s.lineTo(...P(R, a1));
+      s.lineTo(...P(R, a1));                                  // arrow tip (tangent)
       s.lineTo(...P(ri(1) - wing, aH));
       for (let i = N; i >= 0; i--) { const f = i / N; s.lineTo(...P(ri(f), a0 + (aH - a0) * f)); }
       s.closePath();
@@ -103,74 +106,63 @@
       const g = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
       g.translate(0, 0, -thick / 2); return g;
     }
+    const ARC = { a0: 3.4, a1: -0.2 };  // ~206° open arc lying across the top; opening faces the camera
 
-    // ---- 10 arrow designs ----------------------------------------------------
+    // chevrons / dashes placed along the ARC, flat on the top face
+    function alongArc(fn, K) {
+      for (let i = 0; i < K; i++) fn(ARC.a0 + (ARC.a1 - ARC.a0) * (i / (K - 1)), i);
+    }
+
+    // ---- arrow designs — all flat, in-plane SPIN arcs on the top face --------
     const ARROWS = [
-      { name: '经典缎带', desc: '对称半圆缎带 + 锥形箭头(基准)', make() {
-        const m = new THREE.Mesh(extrude(ribbon({})), amat()); const g = new THREE.Group(); layFlat(m, 1.64); g.add(m); return g; } },
+      { name: '半圆弧 · 中', desc: '平躺在顶面上的半圆弧 + 切向箭头(基准 · 推荐)', make() {
+        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.18 })), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
 
-      { name: '纤细优雅', desc: '细带、锐利小箭头,克制精致', make() {
-        const m = new THREE.Mesh(extrude(ribbon({ band: 0.11, wing: 0.14, headLen: 0.45 }), 0.04), amat()); const g = new THREE.Group(); layFlat(m, 1.64); g.add(m); return g; } },
+      { name: '半圆弧 · 细', desc: '细弧,克制精致', make() {
+        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.1, wing: 0.14, headLen: 0.44 }), 0.04), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
 
-      { name: '粗壮有力', desc: '宽带、大箭头,醒目', make() {
-        const m = new THREE.Mesh(extrude(ribbon({ band: 0.34, wing: 0.28, headLen: 0.62, R: 1.48 }), 0.06), amat()); const g = new THREE.Group(); layFlat(m, 1.66); g.add(m); return g; } },
+      { name: '半圆弧 · 粗大头', desc: '宽弧 + 醒目大箭头', make() {
+        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.26, wing: 0.3, headLen: 0.64 }), 0.06), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
 
-      { name: '渐宽(尾细头宽)', desc: '从尾到头逐渐变宽,有笔锋感', make() {
-        const wa = f => 0.05 + 0.24 * f;
-        const m = new THREE.Mesh(extrude(ribbon({ widthAt: wa, wing: 0.22 })), amat()); const g = new THREE.Group(); layFlat(m, 1.64); g.add(m); return g; } },
+      { name: '渐宽半圆', desc: '尾细头宽,有笔锋感', make() {
+        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, widthAt: f => 0.05 + 0.24 * f, wing: 0.22 })), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
 
-      { name: '双线', desc: '两条同心细弧 + 箭头,几何感', make() {
+      { name: '双弧', desc: '两条同心弧,几何感', make() {
         const g = new THREE.Group();
-        const a = new THREE.Mesh(extrude(ribbon({ R: 1.62, band: 0.07, headLen: 0.5, wing: 0.16 }), 0.04), amat());
-        const b = new THREE.Mesh(extrude(ribbon({ R: 1.42, band: 0.07, headLen: 0.001, wing: 0 }), 0.04), amat());
-        layFlat(a, 1.64); layFlat(b, 1.64); g.add(a, b); return g; } },
+        const a = new THREE.Mesh(extrude(ribbon({ ...ARC, R: 1.3, band: 0.07, headLen: 0.44, wing: 0.14 }), 0.04), amat());
+        const b = new THREE.Mesh(extrude(ribbon({ ...ARC, R: 1.06, band: 0.07, headLen: 0.001, wing: 0 }), 0.04), amat());
+        layFlat(a, FLOAT); layFlat(b, FLOAT); g.add(a, b); return g; } },
 
-      { name: '刷新环 ↻', desc: '接近整圈的对称环 + 箭头(最"旋转"的图标感)', make() {
-        const m = new THREE.Mesh(extrude(ribbon({ R: 1.45, band: 0.17, span: 5.2, headLen: 0.5, wing: 0.2 }), 0.05), amat()); const g = new THREE.Group(); layFlat(m, 1.64); g.add(m); return g; } },
-
-      { name: '雪佛龙弧', desc: '沿弧线排布的 V 形箭头,轻盈现代', make() {
-        const g = new THREE.Group(); const mat = amat(); const span = 2.7, K = 4, R = 1.5, float = 1.66;
-        for (let i = 0; i < K; i++) {
-          const a = AF - DIR * span / 2 + DIR * span * (i / (K - 1));
-          const s = new THREE.Shape();
-          s.moveTo(0.17, 0); s.lineTo(-0.11, 0.17); s.lineTo(-0.02, 0); s.lineTo(-0.11, -0.17); s.closePath();
+      { name: '雪佛龙半圆', desc: '沿弧排布的 V 形箭头,轻盈', make() {
+        const g = new THREE.Group(); const mat = amat();
+        alongArc(a => {
+          const s = new THREE.Shape(); s.moveTo(0.18, 0); s.lineTo(-0.1, 0.18); s.lineTo(-0.01, 0); s.lineTo(-0.1, -0.18); s.closePath();
           const m = new THREE.Mesh(extrude(s, 0.05), mat);
-          const tan = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a)).multiplyScalar(DIR).normalize();
+          const tan = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a)).multiplyScalar(Math.sign(ARC.a1 - ARC.a0)).normalize();
           const up = new THREE.Vector3(0, 1, 0);
-          const yAx = new THREE.Vector3().crossVectors(up, tan).normalize();
-          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tan, yAx, up));
-          m.position.set(R * Math.cos(a), float, R * Math.sin(a));
-          g.add(m);
-        }
+          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tan, new THREE.Vector3().crossVectors(up, tan).normalize(), up));
+          m.position.set(1.18 * Math.cos(a), FLOAT, 1.18 * Math.sin(a)); g.add(m);
+        }, 4);
         return g; } },
 
-      { name: '虚线弧', desc: '断续短段 + 箭头,像"运动轨迹"', make() {
-        const g = new THREE.Group(); const span = 3.2, segs = 7, gap = 0.45;
+      { name: '虚线半圆', desc: '断续短段 + 箭头,运动轨迹感', make() {
+        const g = new THREE.Group(); const R = 1.18, band = 0.15, segs = 6;
+        const aBody = ARC.a1 - Math.sign(ARC.a1 - ARC.a0) * 0.55;
         for (let i = 0; i < segs; i++) {
-          const f0 = i / segs, f1 = f0 + (1 - gap) / segs;
-          const a0 = AF - DIR * span / 2 + DIR * span * f0, a1 = AF - DIR * span / 2 + DIR * span * f1;
+          const f0 = i / segs, f1 = f0 + 0.62 / segs;
+          const b0 = ARC.a0 + (aBody - ARC.a0) * f0, b1 = ARC.a0 + (aBody - ARC.a0) * f1;
           const s = new THREE.Shape();
-          s.moveTo(...P(1.61, a0)); s.lineTo(...P(1.61, a1)); s.lineTo(...P(1.39, a1)); s.lineTo(...P(1.39, a0)); s.closePath();
-          const m = new THREE.Mesh(extrude(s, 0.045), amat()); layFlat(m, 1.64); g.add(m);
+          s.moveTo(...P(R + band / 2, b0)); s.lineTo(...P(R + band / 2, b1)); s.lineTo(...P(R - band / 2, b1)); s.lineTo(...P(R - band / 2, b0)); s.closePath();
+          const m = new THREE.Mesh(extrude(s, 0.045), amat()); layFlat(m, FLOAT); g.add(m);
         }
-        const ah = AF + DIR * span / 2;
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 3), amat());
-        head.position.set(P(1.5, ah)[0], 1.64, P(1.5, ah)[1]);
-        const tan = new THREE.Vector3(-Math.sin(ah), 0, Math.cos(ah)).multiplyScalar(DIR);
-        head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan); g.add(head); return g; } },
+        const head = new THREE.Mesh(extrude(ribbon({ a0: aBody, a1: ARC.a1, band, headLen: 0.5, wing: 0.2 }), 0.05), amat());
+        layFlat(head, FLOAT); g.add(head); return g; } },
 
-      { name: '圆头缎带', desc: '缎带两端圆润收尾,柔和高级', make() {
+      { name: '发光半圆', desc: '弧 + 柔和外发光,氛围感', make() {
         const g = new THREE.Group();
-        const m = new THREE.Mesh(extrude(ribbon({ band: 0.2, headLen: 0.5 })), amat()); layFlat(m, 1.64); g.add(m);
-        const a0 = AF - DIR * 3.5 / 2;
-        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 16), amat());
-        cap.position.set(P(1.5, a0)[0], 1.64, P(1.5, a0)[1]); g.add(cap); return g; } },
-
-      { name: '发光弧', desc: '缎带 + 柔和外发光,有氛围感', make() {
-        const g = new THREE.Group();
-        const m = new THREE.Mesh(extrude(ribbon({ band: 0.18 })), amat()); layFlat(m, 1.65); g.add(m);
-        const glowMat = new THREE.MeshBasicMaterial({ color: 0xffdd55, transparent: true, opacity: 0.22, side: THREE.DoubleSide, toneMapped: false });
-        const gm = new THREE.Mesh(extrude(ribbon({ band: 0.42 }), 0.02), glowMat); layFlat(gm, 1.63); g.add(gm); return g; } },
+        const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.16 })), amat()); layFlat(m, FLOAT); g.add(m);
+        const gmat = new THREE.MeshBasicMaterial({ color: 0xffdd55, transparent: true, opacity: 0.22, side: THREE.DoubleSide, toneMapped: false });
+        const gm = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.46 }), 0.02), gmat); layFlat(gm, FLOAT - 0.02); g.add(gm); return g; } },
     ];
 
     const grid = document.getElementById('grid');
