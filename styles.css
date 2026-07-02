@@ -97,6 +97,8 @@ html, body {
 }
 .topbar-actions { display: flex; gap: 10px; }
 .pill.icon .glyph { font-size: 15px; line-height: 1; color: var(--accent); }
+.orbit-ico { width: 17px; height: 17px; color: var(--muted); flex: none; transition: color 0.18s ease; }
+.pill.on .orbit-ico { color: var(--accent); }
 
 /* ---------- bottom dock ---------- */
 .dock {
