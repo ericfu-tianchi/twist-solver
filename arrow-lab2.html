@@ -84,10 +84,9 @@
     }
     const P = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
 
-    const FLOAT = 1.66;      // just above the top stickers (1.5) — hovers, never touches
-    const HEAD_A = 1.7;      // head sits near the front (visible); ring sweeps CW back to it
-    // flat ring/arc ribbon lying in the top-face plane; head at a1 (tangent → spin direction)
-    function ribbon({ R = 1.18, band = 0.16, a0, a1, headLen = 0.5, wing = 0.19, widthAt = null, N = 44 }) {
+    const FLOAT = 1.0;       // height of the top LAYER's front faces — the arrow wraps across them
+    // ribbon arc built in the (radius, angle) plane; head at a1 (tangent → turn direction)
+    function ribbon({ R = 1.72, band = 0.2, a0, a1, headLen = 0.5, wing = 0.22, widthAt = null, N = 44 }) {
       const dir = Math.sign(a1 - a0);
       const aH = a1 - dir * headLen;
       const w = widthAt || (() => band);
@@ -106,63 +105,39 @@
       const g = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
       g.translate(0, 0, -thick / 2); return g;
     }
-    const ARC = { a0: 3.4, a1: -0.2 };  // ~206° open arc lying across the top; opening faces the camera
+    const ARC = { a0: 2.72, a1: 0.32 };  // ~137° arc hugging the FRONT of the turning layer
 
-    // chevrons / dashes placed along the ARC, flat on the top face
-    function alongArc(fn, K) {
-      for (let i = 0; i < K; i++) fn(ARC.a0 + (ARC.a1 - ARC.a0) * (i / (K - 1)), i);
+    // ---- arrow designs — a horizontal arrow WRAPPING around the turning layer ---
+    // a horizontal arrow ACROSS the front faces of the turning layer, curling up at the
+    // right to show the wrap. Built in the plane just in front of those faces.
+    const ZFRONT = 1.66;  // just in front of the front stickers (1.55) — never touches
+    function frontArrow({ band = 0.16, headW = 0.24, curl = 0.55, tHead = 0.8, y = 0.62, thick = 0.05 } = {}) {
+      const hw = band / 2, N = 36;
+      const c = t => new THREE.Vector2(-1.35 + 2.55 * t, 0.1 * t + curl * t * t * t);
+      const tang = t => { const e = 0.001; const a = c(Math.max(0, t - e)), b = c(Math.min(1, t + e)); return b.sub(a).normalize(); };
+      const nrm = t => { const g = tang(t); return new THREE.Vector2(-g.y, g.x); };
+      const top = [], bot = [];
+      for (let i = 0; i <= N; i++) { const t = tHead * i / N, p = c(t), n = nrm(t); top.push([p.x + n.x * hw, p.y + n.y * hw]); bot.push([p.x - n.x * hw, p.y - n.y * hw]); }
+      const s = new THREE.Shape();
+      s.moveTo(...top[0]);
+      for (let i = 1; i < top.length; i++) s.lineTo(...top[i]);
+      const ph = c(tHead), nh = nrm(tHead), tip = c(1);
+      s.lineTo(ph.x + nh.x * headW, ph.y + nh.y * headW);
+      s.lineTo(tip.x, tip.y);
+      s.lineTo(ph.x - nh.x * headW, ph.y - nh.y * headW);
+      for (let i = bot.length - 1; i >= 0; i--) s.lineTo(...bot[i]);
+      s.closePath();
+      const m = new THREE.Mesh(extrude(s, thick), amat());
+      m.position.set(0, y, ZFRONT);
+      const g = new THREE.Group(); g.add(m); return g;
     }
 
-    // ---- arrow designs — all flat, in-plane SPIN arcs on the top face --------
+    // ---- arrow designs — horizontal arrow across the FRONT of the turning layer ---
     const ARROWS = [
-      { name: '半圆弧 · 中', desc: '平躺在顶面上的半圆弧 + 切向箭头(基准 · 推荐)', make() {
-        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.18 })), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
-
-      { name: '半圆弧 · 细', desc: '细弧,克制精致', make() {
-        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.1, wing: 0.14, headLen: 0.44 }), 0.04), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
-
-      { name: '半圆弧 · 粗大头', desc: '宽弧 + 醒目大箭头', make() {
-        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.26, wing: 0.3, headLen: 0.64 }), 0.06), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
-
-      { name: '渐宽半圆', desc: '尾细头宽,有笔锋感', make() {
-        const g = new THREE.Group(); const m = new THREE.Mesh(extrude(ribbon({ ...ARC, widthAt: f => 0.05 + 0.24 * f, wing: 0.22 })), amat()); layFlat(m, FLOAT); g.add(m); return g; } },
-
-      { name: '双弧', desc: '两条同心弧,几何感', make() {
-        const g = new THREE.Group();
-        const a = new THREE.Mesh(extrude(ribbon({ ...ARC, R: 1.3, band: 0.07, headLen: 0.44, wing: 0.14 }), 0.04), amat());
-        const b = new THREE.Mesh(extrude(ribbon({ ...ARC, R: 1.06, band: 0.07, headLen: 0.001, wing: 0 }), 0.04), amat());
-        layFlat(a, FLOAT); layFlat(b, FLOAT); g.add(a, b); return g; } },
-
-      { name: '雪佛龙半圆', desc: '沿弧排布的 V 形箭头,轻盈', make() {
-        const g = new THREE.Group(); const mat = amat();
-        alongArc(a => {
-          const s = new THREE.Shape(); s.moveTo(0.18, 0); s.lineTo(-0.1, 0.18); s.lineTo(-0.01, 0); s.lineTo(-0.1, -0.18); s.closePath();
-          const m = new THREE.Mesh(extrude(s, 0.05), mat);
-          const tan = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a)).multiplyScalar(Math.sign(ARC.a1 - ARC.a0)).normalize();
-          const up = new THREE.Vector3(0, 1, 0);
-          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tan, new THREE.Vector3().crossVectors(up, tan).normalize(), up));
-          m.position.set(1.18 * Math.cos(a), FLOAT, 1.18 * Math.sin(a)); g.add(m);
-        }, 4);
-        return g; } },
-
-      { name: '虚线半圆', desc: '断续短段 + 箭头,运动轨迹感', make() {
-        const g = new THREE.Group(); const R = 1.18, band = 0.15, segs = 6;
-        const aBody = ARC.a1 - Math.sign(ARC.a1 - ARC.a0) * 0.55;
-        for (let i = 0; i < segs; i++) {
-          const f0 = i / segs, f1 = f0 + 0.62 / segs;
-          const b0 = ARC.a0 + (aBody - ARC.a0) * f0, b1 = ARC.a0 + (aBody - ARC.a0) * f1;
-          const s = new THREE.Shape();
-          s.moveTo(...P(R + band / 2, b0)); s.lineTo(...P(R + band / 2, b1)); s.lineTo(...P(R - band / 2, b1)); s.lineTo(...P(R - band / 2, b0)); s.closePath();
-          const m = new THREE.Mesh(extrude(s, 0.045), amat()); layFlat(m, FLOAT); g.add(m);
-        }
-        const head = new THREE.Mesh(extrude(ribbon({ a0: aBody, a1: ARC.a1, band, headLen: 0.5, wing: 0.2 }), 0.05), amat());
-        layFlat(head, FLOAT); g.add(head); return g; } },
-
-      { name: '发光半圆', desc: '弧 + 柔和外发光,氛围感', make() {
-        const g = new THREE.Group();
-        const m = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.16 })), amat()); layFlat(m, FLOAT); g.add(m);
-        const gmat = new THREE.MeshBasicMaterial({ color: 0xffdd55, transparent: true, opacity: 0.22, side: THREE.DoubleSide, toneMapped: false });
-        const gm = new THREE.Mesh(extrude(ribbon({ ...ARC, band: 0.46 }), 0.02), gmat); layFlat(gm, FLOAT - 0.02); g.add(gm); return g; } },
+      { name: '横向 · 中', desc: '横跨转动层前方、右端上扬环绕(基准 · 推荐)', make() { return frontArrow(); } },
+      { name: '横向 · 细', desc: '细箭头,克制精致', make() { return frontArrow({ band: 0.1, headW: 0.18, thick: 0.04 }); } },
+      { name: '横向 · 粗大头', desc: '粗 + 大箭头,醒目', make() { return frontArrow({ band: 0.26, headW: 0.34, thick: 0.06 }); } },
+      { name: '几乎水平', desc: '基本水平,仅末端微微上扬', make() { return frontArrow({ curl: 0.3 }); } },
     ];
 
     const grid = document.getElementById('grid');
@@ -182,7 +157,7 @@
       const key = new THREE.DirectionalLight(0xffffff, 1.9); key.position.set(5, 9, 6); scene.add(key);
       const fill = new THREE.DirectionalLight(0xbcd0ff, 0.6); fill.position.set(-6, 2, -3); scene.add(fill);
       const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-      camera.position.set(3.6, 4.2, 6); camera.lookAt(0, 0, 0);
+      camera.position.set(3.0, 1.3, 6.6); camera.lookAt(0, 0, 0); // near straight-on, like the reference
       const controls = new OrbitControls(camera, canvas);
       controls.enableZoom = false; controls.enablePan = false; controls.enableDamping = true;
 
