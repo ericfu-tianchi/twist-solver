@@ -191,10 +191,15 @@ export class RubiksCube {
         if (!child.userData.isSticker) continue;
         const mat = child.material;
         this._highlight.push({ mat, hex: mat.emissive.getHex(), i: mat.emissiveIntensity });
-        mat.emissive.setHex(0xffffff);
-        mat.emissiveIntensity = 0.32;
+        mat.emissive.setHex(0xff9d10); // warm amber glow, matching the arrow
+        mat.emissiveIntensity = 0.5;
       }
     }
+  }
+
+  /** Drive the highlighted layer's glow intensity (called each frame for a breathing pulse). */
+  pulseHighlight(intensity) {
+    for (const h of this._highlight) h.mat.emissiveIntensity = intensity;
   }
 
   clearHighlight() {

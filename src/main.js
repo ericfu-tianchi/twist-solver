@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RubiksCube, UNIT, parseMove, COLORS } from './cube.js';
 // solver.js is imported lazily (see ensureSolver) so the cube + editor still
@@ -25,21 +24,39 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
-camera.position.set(0, 0, 8); // face-on: only the front face is visible by default
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.enablePan = false;
-controls.enableRotate = false; // enabled only in free mode
-controls.minDistance = 6;
-controls.maxDistance = 15;
-controls.target.set(0, 0, 0);
+// --- camera control: seamless arcball rotate (free mode) + wheel dolly --------
+// Standard "hero" orientation: front(green) toward you, white on top, red on the
+// right — the conventional way a cube is depicted (F + U + R all visible).
+const TARGET = new THREE.Vector3(0, 0, 0);
+const UP = new THREE.Vector3(0, 1, 0);
+const HERO = new THREE.Vector3(4.4, 3.6, 6.6);
+const MIN_DIST = 5;
+const MAX_DIST = 18;
+camera.position.copy(HERO);
+camera.lookAt(TARGET);
+
+function dolly(factor) {
+  const off = camera.position.clone().sub(TARGET);
+  off.setLength(Math.max(MIN_DIST, Math.min(MAX_DIST, off.length() * factor)));
+  camera.position.copy(TARGET).add(off);
+  camera.lookAt(TARGET);
+}
+function orbitDrag(dx, dy) {
+  const off = camera.position.clone().sub(TARGET);
+  off.applyAxisAngle(UP, -dx * 0.008);                    // yaw around world up
+  const right = new THREE.Vector3().crossVectors(camera.up, off).normalize();
+  off.applyAxisAngle(right, -dy * 0.008);                 // pitch around camera-right (seamless over the poles)
+  camera.up.applyAxisAngle(right, -dy * 0.008);
+  camera.position.copy(TARGET).add(off);
+  camera.lookAt(TARGET);
+}
 
 // --- lighting ---------------------------------------------------------------
-scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a33, 0.6));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b6b78, 1.0)); // lighter ground term so downward faces aren't black
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
+const key = new THREE.DirectionalLight(0xffffff, 2.0);
 key.position.set(6, 10, 7);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
@@ -53,9 +70,13 @@ key.shadow.bias = -0.0004;
 key.shadow.radius = 6;
 scene.add(key);
 
-const fill = new THREE.DirectionalLight(0xa9c3ff, 0.5);
+const fill = new THREE.DirectionalLight(0xbcd0ff, 0.8);
 fill.position.set(-7, 3, -4);
 scene.add(fill);
+
+const under = new THREE.DirectionalLight(0xffffff, 0.55); // lifts shadowed / underside faces from any angle
+under.position.set(-3, -6, -5);
+scene.add(under);
 
 // soft contact shadow on the floor
 const ground = new THREE.Mesh(
@@ -68,7 +89,9 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 // --- cube -------------------------------------------------------------------
+let cubeScale = 0.8; // driven by the size slider
 let cube = new RubiksCube();
+cube.group.scale.setScalar(cubeScale);
 scene.add(cube.group);
 
 // --- resize + render loop ---------------------------------------------------
@@ -88,23 +111,18 @@ let editing = false; // editor modal open
 const freeToggle = document.getElementById('freeToggle');
 function setFree(on) {
   freeMode = on;
-  controls.enableRotate = on;
   freeToggle.classList.toggle('on', on);
   freeToggle.setAttribute('aria-pressed', String(on));
 }
 freeToggle.addEventListener('click', () => setFree(!freeMode));
 
-// --- recenter: glide the camera back to the default face-on view ------------
-const HOME_POS = new THREE.Vector3(0, 0, 8); // straight-on front face
-const HOME_TARGET = new THREE.Vector3(0, 0, 0);
+// --- recenter: glide the camera back to the standard hero view --------------
 let homing = false;
 function homeView() {
   if (homing) return;
   homing = true;
   const p0 = camera.position.clone();
-  const t0 = controls.target.clone();
-  const wasRotate = controls.enableRotate;
-  controls.enabled = false; // let the tween own the camera briefly
+  const up0 = camera.up.clone();
   const dur = 520;
   let start = null;
   const ease = t => 1 - Math.pow(1 - t, 3);
@@ -112,11 +130,11 @@ function homeView() {
     if (start === null) start = ts;
     const t = Math.min(1, (ts - start) / dur);
     const k = ease(t);
-    camera.position.lerpVectors(p0, HOME_POS, k);
-    controls.target.lerpVectors(t0, HOME_TARGET, k);
-    camera.lookAt(controls.target);
+    camera.position.lerpVectors(p0, HERO, k);
+    camera.up.lerpVectors(up0, UP, k).normalize();
+    camera.lookAt(TARGET);
     if (t < 1) requestAnimationFrame(step);
-    else { controls.enabled = true; controls.enableRotate = wasRotate; homing = false; }
+    else { camera.up.copy(UP); homing = false; }
   };
   requestAnimationFrame(step);
 }
@@ -130,10 +148,39 @@ document.querySelectorAll('[data-face]').forEach(btn => {
 document.querySelectorAll('[data-move]').forEach(btn => {
   btn.addEventListener('click', () => cube.move(btn.dataset.move));
 });
-document.getElementById('scramble').addEventListener('click', () => cube.scramble(20));
+// --- scramble as a start/stop toggle (you control how scrambled it gets) -----
+let scrambleTimer = null;
+const scrambleBtn = document.getElementById('scramble');
+const SCRAMBLE_FACES = ['U', 'D', 'L', 'R', 'F', 'B'];
+const SCRAMBLE_MODS = ['', "'", '2'];
+let scrambleLast = '';
+function stopScramble() {
+  if (!scrambleTimer) return;
+  clearInterval(scrambleTimer);
+  scrambleTimer = null;
+  scrambleBtn.textContent = '打乱 Scramble';
+  scrambleBtn.classList.remove('on');
+}
+function toggleScramble() {
+  if (scrambleTimer) { stopScramble(); return; }
+  if (solving || editing) return;
+  scrambleBtn.textContent = '停止 Stop';
+  scrambleBtn.classList.add('on');
+  scrambleTimer = setInterval(() => {
+    if (cube.isBusy()) return;
+    let f;
+    do { f = SCRAMBLE_FACES[Math.floor(Math.random() * 6)]; } while (f === scrambleLast);
+    scrambleLast = f;
+    cube.move(f + SCRAMBLE_MODS[Math.floor(Math.random() * 3)]);
+  }, 170);
+}
+scrambleBtn.addEventListener('click', toggleScramble);
+
 document.getElementById('reset').addEventListener('click', () => {
+  stopScramble();
   cube.dispose();
   cube = new RubiksCube();
+  cube.group.scale.setScalar(cubeScale);
   scene.add(cube.group);
 });
 
@@ -162,6 +209,7 @@ const ndc = new THREE.Vector2();
 const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 const axisKeyOf = v => (Math.abs(v.x) > 0.5 ? 'x' : Math.abs(v.y) > 0.5 ? 'y' : 'z');
 let drag = null;
+let orbiting = null; // free-mode camera drag
 
 function toNDC(e) {
   const r = renderer.domElement.getBoundingClientRect();
@@ -180,7 +228,9 @@ function roundToAxis(v) {
 }
 
 renderer.domElement.addEventListener('pointerdown', e => {
-  if (freeMode || solving || editing || cube.isBusy() || e.button !== 0) return;
+  if (e.button !== 0) return;
+  if (freeMode) { orbiting = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); return; }
+  if (solving || editing || cube.isBusy()) return;
   toNDC(e);
   ray.setFromCamera(ndc, camera);
   const hit = ray.intersectObjects(cube.pickables, false)[0];
@@ -201,6 +251,12 @@ renderer.domElement.addEventListener('pointerdown', e => {
 });
 
 renderer.domElement.addEventListener('pointermove', e => {
+  if (orbiting) {
+    orbitDrag(e.clientX - orbiting.x, e.clientY - orbiting.y);
+    orbiting.x = e.clientX;
+    orbiting.y = e.clientY;
+    return;
+  }
   if (!drag || drag.done) return;
   const dv = new THREE.Vector2(e.clientX - drag.x, e.clientY - drag.y);
   if (dv.length() < 10) return;
@@ -229,9 +285,16 @@ renderer.domElement.addEventListener('pointermove', e => {
 ['pointerup', 'pointercancel'].forEach(ev =>
   renderer.domElement.addEventListener(ev, e => {
     drag = null;
+    orbiting = null;
     try { renderer.domElement.releasePointerCapture(e.pointerId); } catch { /* noop */ }
   }),
 );
+
+// wheel to zoom (works in every mode)
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  dolly(e.deltaY > 0 ? 1.08 : 0.926);
+}, { passive: false });
 
 // ===========================================================================
 // Phase 2 — guided solve + cube editor
@@ -271,33 +334,33 @@ const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 
 // --- directional arrow ------------------------------------------------------
 const ARROW_MAT = new THREE.MeshStandardMaterial({
-  color: 0xfff3d0, emissive: 0xffab1a, emissiveIntensity: 0.85,
-  roughness: 0.3, metalness: 0.0, toneMapped: false, // bypass tone-map so it glows brighter
+  color: 0xfff1c2, emissive: 0xff9d10, emissiveIntensity: 0.9,
+  roughness: 0.28, metalness: 0.0, toneMapped: false, // bypass tone-map so it glows
 });
 let arrowObj = null;
 let camMoving = false;
-// Solving keeps a gentle front 3/4 as the BASE view; a move whose face is hidden
-// from it tilts the camera just enough to reveal that arrow, and we glide back to
-// BASE as soon as the next move is visible from the front again.
-const BASE_DIR = new THREE.Vector3(0.34, 0.26, 0.90).normalize();
-const SOLVE_VIEW = BASE_DIR.clone().multiplyScalar(8.3);
+// From the front hero view, every arrow reads clearly (they arc outside the cube)
+// EXCEPT a Back turn, which sits behind the cube. So only Back tilts the camera;
+// any other move returns to / stays at the front. Minimal, non-dizzying motion.
+const BACK_VIEW = new THREE.Vector3(3.0, 2.6, -7.2);
 
 function clearArrow() {
   if (arrowObj) {
-    scene.remove(arrowObj);
+    cube.group.remove(arrowObj);
     arrowObj.traverse(o => o.geometry?.dispose?.());
     arrowObj = null;
   }
   cube.clearHighlight();
 }
 
-// draw the arc from tail toward the head on a loop — reads as motion in the turn direction
+// gentle breathing glow on the arrow and the highlighted layer (no crude redraw)
 function animateArrow() {
   if (!arrowObj) return;
-  const { tube, triCount } = arrowObj.userData;
-  const t = (performance.now() % 1500) / 1500;
-  tube.geometry.setDrawRange(0, Math.ceil(triCount * Math.min(1, t / 0.72)));
-  ARROW_MAT.emissiveIntensity = 0.72 + 0.28 * Math.sin(performance.now() / 300);
+  const now = performance.now();
+  const b = 0.5 + 0.5 * Math.sin(now / 340);
+  ARROW_MAT.emissiveIntensity = 0.65 + 0.4 * b;
+  arrowObj.scale.setScalar(1 + 0.035 * b);
+  cube.pulseHighlight(0.25 + 0.6 * b);
   requestAnimationFrame(animateArrow);
 }
 
@@ -307,7 +370,7 @@ function showArrow(token) {
   if (!info) return;
   cube.setHighlight(info.axisKey, info.whole ? null : info.layer);
   arrowObj = buildArc(info.axisKey, info.whole ? 0 : info.layer, info.sign, info.quarters);
-  scene.add(arrowObj);
+  cube.group.add(arrowObj); // child of the cube so it scales with the size slider
   animateArrow();
 }
 
@@ -317,9 +380,9 @@ function buildArc(axisKey, layer, sign, quarters) {
   const helper = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(helper, a).normalize();
   const v = new THREE.Vector3().crossVectors(a, u).normalize();
-  const R = 2.72;
+  const R = 2.6;
   const offset = layer * 1.5;
-  const span = quarters >= 2 ? 2.5 : 1.6; // radians of arc shown
+  const span = quarters >= 2 ? 2.4 : 1.55; // radians of arc shown
   const dir = sign >= 0 ? 1 : -1;
   const th0 = -dir * span / 2;
   const th1 = dir * span / 2;
@@ -328,53 +391,43 @@ function buildArc(axisKey, layer, sign, quarters) {
     .addScaledVector(v, R * Math.sin(th))
     .addScaledVector(a, offset);
   const pts = [];
-  for (let i = 0; i <= 64; i++) pts.push(P(th0 + (th1 - th0) * (i / 64)));
-  const tubeGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.1, 16, false);
-  const tube = new THREE.Mesh(tubeGeo, ARROW_MAT);
+  for (let i = 0; i <= 48; i++) pts.push(P(th0 + (th1 - th0) * (i / 48)));
+  const tube = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 72, 0.075, 14, false), ARROW_MAT,
+  );
   g.add(tube);
   const tip = P(th1);
   const tangent = new THREE.Vector3()
     .addScaledVector(u, -Math.sin(th1))
     .addScaledVector(v, Math.cos(th1))
     .multiplyScalar(dir).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.66, 26), ARROW_MAT);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.56, 24), ARROW_MAT);
   head.position.copy(tip);
   head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
   g.add(head);
-  g.userData = { tube, head, triCount: tubeGeo.index.count };
   return g;
 }
 
-// --- camera: reveal the active face when it's hidden -----------------------
+// --- camera: only a Back turn is hidden; everything else stays on the front --
 function activeNormal(token) {
   const info = parseMove(token);
   if (!info || info.whole || info.layer === 0) return null;
   const base = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[info.axisKey];
   return base.map(c => c * info.layer); // outward normal of the turning layer
 }
-// is face n comfortably visible from the base solving view?
-function faceVisibleFromBase(n) {
-  return BASE_DIR.x * n[0] + BASE_DIR.y * n[1] + BASE_DIR.z * n[2] > 0.2;
-}
-// tilt the base view toward a hidden face just enough to reveal its arrow
-function revealPos(n) {
-  const nv = new THREE.Vector3(n[0], n[1], n[2]);
-  return BASE_DIR.clone().addScaledVector(nv, 1.7).normalize().multiplyScalar(8.5);
-}
-// where this move should be viewed from: BASE if front-visible, else a reveal tilt
 function desiredView(token) {
   const n = activeNormal(token);
-  if (!n || faceVisibleFromBase(n)) return SOLVE_VIEW;
-  return revealPos(n);
+  if (n && n[2] === -1) return BACK_VIEW; // a Back-face turn sits behind the cube
+  return HERO;                            // everything else reads fine from the front
 }
-function orbitCameraTo(target, dur = 680) {
+function orbitCameraTo(target, dur = 620) {
   return new Promise(resolve => {
     camMoving = true;
-    controls.enabled = false;
     const d0 = camera.position.clone().normalize();
     const d1 = target.clone().normalize();
     const r0 = camera.position.length();
     const r1 = target.length();
+    const up0 = camera.up.clone();
     const full = new THREE.Quaternion().setFromUnitVectors(d0, d1);
     const idq = new THREE.Quaternion();
     const ease = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -385,9 +438,10 @@ function orbitCameraTo(target, dur = 680) {
       const k = ease(t);
       const q = new THREE.Quaternion().slerpQuaternions(idq, full, k);
       camera.position.copy(d0.clone().applyQuaternion(q).multiplyScalar(r0 + (r1 - r0) * k));
-      camera.lookAt(0, 0, 0);
+      camera.up.lerpVectors(up0, UP, k).normalize();
+      camera.lookAt(TARGET);
       if (t < 1) requestAnimationFrame(step);
-      else { controls.enabled = true; camMoving = false; resolve(); }
+      else { camera.up.copy(UP); camMoving = false; resolve(); }
     };
     requestAnimationFrame(step);
   });
@@ -429,7 +483,15 @@ function orientMoves(state) {
 
 // --- guided solve controller ------------------------------------------------
 let session = null; // { flat: [{token, phase}], idx, auto, autoTimer }
+let playbackSpeed = 1; // auto-play speed multiplier (0.5 / 1 / 2)
 const invertToken = t => (t.endsWith('2') ? t : t.endsWith("'") ? t[0] : t + "'");
+
+function setSpeed(s) {
+  playbackSpeed = s;
+  cube.turnDuration = Math.round(420 / s);
+  document.querySelectorAll('[data-speed]').forEach(b =>
+    b.classList.toggle('on', parseFloat(b.dataset.speed) === s));
+}
 
 let solveFn = null;
 async function ensureSolver() {
@@ -439,6 +501,7 @@ async function ensureSolver() {
 
 async function startSolve() {
   if (solving || editing || cube.isBusy()) return;
+  stopScramble();
   solving = true;
   if (freeMode) setFree(false);
   // rare: reorient so centres are canonical, so the solver's face moves line up
@@ -463,11 +526,12 @@ async function startSolve() {
   if (!flat.length) { solving = false; toast('已经是还原状态啦 🎉'); return; }
 
   session = { flat, idx: 0, auto: false };
+  cube.turnDuration = Math.round(420 / playbackSpeed); // calmer turns to follow along
   dock.hidden = true;
   solvePanel.hidden = false;
   solveAuto.classList.remove('on');
   solveAuto.textContent = '自动 ▶';
-  await orbitCameraTo(SOLVE_VIEW); // start from a 3/4 view so turns read clearly
+  await orbitCameraTo(HERO); // start from the standard front view
   await showStep();
 }
 
@@ -494,7 +558,7 @@ async function nextStep() {
   session.idx++;
   if (session.idx >= session.flat.length) { solveBar.style.width = '100%'; exitSolve(true); return; }
   await showStep();
-  if (session.auto) session.autoTimer = setTimeout(nextStep, 240);
+  if (session.auto) session.autoTimer = setTimeout(nextStep, Math.round(700 / playbackSpeed));
 }
 
 async function prevStep() {
@@ -518,9 +582,10 @@ function exitSolve(finished) {
   clearArrow();
   session = null;
   solving = false;
+  cube.turnDuration = 240; // snappy again for manual play
   solvePanel.hidden = true;
   dock.hidden = false;
-  homeView(); // back to the clean face-on view
+  homeView(); // back to the standard front view
   if (finished) toast('还原完成，恭喜 🎉');
 }
 
@@ -575,6 +640,7 @@ function loadCurrentIntoNet() {
 
 function openEditor() {
   if (solving) return;
+  stopScramble();
   if (!netBuilt) buildEditor();
   netData = {};
   for (const f of NET_ORDER) netData[f] = Array(9).fill(f);
@@ -599,6 +665,7 @@ async function applyEditor() {
   // rebuild the cube at home positions, painted with the entered colours
   cube.dispose();
   cube = new RubiksCube();
+  cube.group.scale.setScalar(cubeScale);
   scene.add(cube.group);
   for (const face of NET_ORDER)
     for (let idx = 0; idx < 9; idx++)
@@ -647,11 +714,22 @@ document.getElementById('editReset').addEventListener('click', () => {
   renderNet();
 });
 
+// playback speed (auto mode)
+document.querySelectorAll('[data-speed]').forEach(btn =>
+  btn.addEventListener('click', () => setSpeed(parseFloat(btn.dataset.speed))));
+
+// cube size slider (left rail)
+const sizeSlider = document.getElementById('sizeSlider');
+if (sizeSlider) {
+  sizeSlider.value = String(cubeScale);
+  sizeSlider.addEventListener('input', () => {
+    cubeScale = parseFloat(sizeSlider.value);
+    cube.group.scale.setScalar(cubeScale);
+  });
+}
+
 // --- render loop ------------------------------------------------------------
 (function loop() {
   requestAnimationFrame(loop);
-  // let OrbitControls drive the camera only when a tween/solve isn't; otherwise
-  // it fights (and overrides) our reveal-orbit and recenter animations.
-  if (!camMoving && !homing && !solving) controls.update();
   renderer.render(scene, camera);
 })();
