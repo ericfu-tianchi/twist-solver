@@ -592,8 +592,18 @@ async function showStep() {
   showArrow(cur.token); // camera stays locked at SOLVE_VIEW for the whole solve
 }
 
+// glide back to the locked optimal 3/4 view (used when advancing after free-observe)
+async function ensureSolveView() {
+  if (freeMode) setFree(false);
+  if (camMoving) return;
+  if (camera.position.distanceTo(SOLVE_VIEW) > 0.4 || camera.up.distanceTo(UP) > 0.04) {
+    await orbitCameraTo(SOLVE_VIEW);
+  }
+}
+
 async function nextStep() {
   if (!session || cube.isBusy() || camMoving) return;
+  await ensureSolveView();
   const cur = session.flat[session.idx];
   clearArrow();
   await cube.move(cur.token);
@@ -605,6 +615,7 @@ async function nextStep() {
 
 async function prevStep() {
   if (!session || cube.isBusy() || camMoving || session.idx === 0) return;
+  await ensureSolveView();
   session.idx--;
   clearArrow();
   await cube.move(invertToken(session.flat[session.idx].token));
@@ -746,6 +757,11 @@ function toast(msg) {
 document.getElementById('solve').addEventListener('click', startSolve);
 document.getElementById('edit').addEventListener('click', openEditor);
 document.getElementById('solveExit').addEventListener('click', () => exitSolve(false));
+document.getElementById('solveView').addEventListener('click', async () => {
+  if (!session || camMoving) return;
+  await ensureSolveView();
+  showArrow(session.flat[session.idx].token);
+});
 document.getElementById('solveNext').addEventListener('click', nextStep);
 solvePrev.addEventListener('click', prevStep);
 solveAuto.addEventListener('click', toggleAuto);
