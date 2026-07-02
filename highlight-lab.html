@@ -101,14 +101,12 @@
     }
 
     const VARIANTS = [
-      { name: '柔雅 · 轻', desc: '其余层去饱和·微暗;活动层保留原色', fade: c => hslAdj(c, 0.5, 0.82) },
-      { name: '柔雅 · 活动层提亮', desc: '活动层更饱更亮一点,主动跳出', fade: c => hslAdj(c, 0.5, 0.8), active: m => hslAdj(m.color, 1.08, 1.06) },
-      { name: '沉稳', desc: '其余层去饱和 + 压暗,层次沉稳', fade: c => hslAdj(c, 0.4, 0.62), active: m => hslAdj(m.color, 1.05, 1.0) },
-      { name: '沉稳 · 活动层发光', desc: '活动层按自身颜色微微发光', fade: c => hslAdj(c, 0.42, 0.6), active: m => hslAdj(m.color, 1.05, 1.02), glow: true },
-      { name: '冷调背景', desc: '其余层去饱和并偏冷灰,活动层跳出', fade: c => { hslAdj(c, 0.45, 0.75); c.lerp(COOL.clone(), 0.22); } },
-      { name: '高对比 · 可读', desc: '其余层更暗,活动层加饱加亮,对比最大', fade: c => hslAdj(c, 0.55, 0.55), active: m => hslAdj(m.color, 1.14, 1.07) },
-      { name: '电影感发光', desc: '其余层压暗去饱,活动层自身色发光', fade: c => hslAdj(c, 0.5, 0.5), active: m => hslAdj(m.color, 1.08, 1.03), glow: true },
-      { name: '极简高级', desc: '其余层很淡很柔,活动层原色 + 极轻发光', fade: c => hslAdj(c, 0.35, 0.8), active: m => hslAdj(m.color, 1.04, 1.0), glow: true },
+      { name: 'A · 轻柔', desc: '活动层微提亮;其余层轻压暗、微去饱(克制)',
+        fade: c => hslAdj(c, 0.72, 0.72), active: m => hslAdj(m.color, 1.06, 1.06) },
+      { name: 'B · 均衡(活动层发光)', desc: '活动层加饱加亮 + 微微发光;其余层明显压暗去饱(对比清晰)',
+        fade: c => hslAdj(c, 0.5, 0.5), active: m => hslAdj(m.color, 1.12, 1.08), glow: true },
+      { name: 'C · 戏剧 / 电影感', desc: '活动层高亮发光;其余层重压暗成暗背景(颜色仍隐约可辨)',
+        fade: c => hslAdj(c, 0.42, 0.3), active: m => hslAdj(m.color, 1.16, 1.12), glow: true },
     ];
 
     const grid = document.getElementById('grid');
