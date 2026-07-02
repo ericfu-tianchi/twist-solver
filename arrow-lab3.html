@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Direction-Indicator Lab</title>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #0b0e17; color: #eef1f7;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    header { padding: 22px 26px 6px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header p { margin: 6px 0 0; color: #8a93a8; font-size: 13px; line-height: 1.6; max-width: 860px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 18px; padding: 18px 26px 60px; }
+    .cell { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.10);
+      border-radius: 16px; overflow: hidden; }
+    .cell canvas { width: 100%; height: 270px; display: block; cursor: grab; }
+    .cap { padding: 11px 14px 13px; border-top: 1px solid rgba(255,255,255,.08); }
+    .cap b { font-size: 13.5px; } .cap .n { color: #6ea8ff; margin-right: 6px; }
+    .cap span { display: block; margin-top: 3px; font-size: 12px; color: #8a93a8; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>转动方向标注 · 多方案(U 顶面顺时针)</h1>
+    <p>思路:只在活动面上、沿转动路径画箭头表示方向,其余面不画;箭头浮在面上方(不贴死)、对称、不上扬。
+       挑一个你觉得方向最清楚的编号,我再把它套用到六个面(U/D/L/R/F/B)看是否都成立。可拖动观察。</p>
+  </header>
+  <div class="grid" id="grid"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { RubiksCube, UNIT, COLORS } from './src/cube.js';
+    import { CubeState, randomScramble } from './src/state.js';
+
+    const SCRAMBLE = randomScramble(18);
+    function scrambleColours(cube) {
+      const st = new CubeState().moves(SCRAMBLE);
+      cube.cubies.forEach(cu => {
+        const p = [Math.round(cu.position.x / UNIT), Math.round(cu.position.y / UNIT), Math.round(cu.position.z / UNIT)];
+        cu.children.forEach(ch => {
+          if (!ch.userData.isSticker) return;
+          const n = [Math.round(ch.position.x * 2), Math.round(ch.position.y * 2), Math.round(ch.position.z * 2)];
+          const l = st.colorAt(p, n); if (l) ch.material.color.setHex(COLORS[l]);
+        });
+      });
+    }
+    const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+    function hsl(c, s, l) { const h = {}; c.getHSL(h); c.setHSL(h.h, clamp(h.s * s, 0, 1), clamp(h.l * l, 0, 1)); }
+    function applyC(cube) { // highlight C: active(top) layer bright, rest dark
+      cube.cubies.forEach(cu => {
+        const active = Math.round(cu.position.y / UNIT) === 1;
+        cu.children.forEach(ch => { if (!ch.userData.isSticker) return; active ? hsl(ch.material.color, 1.16, 1.12) : hsl(ch.material.color, 0.42, 0.3); });
+      });
+    }
+    function amat() { return new THREE.MeshStandardMaterial({ color: 0x111318, emissive: 0x0c0d10, emissiveIntensity: 0.15, roughness: 0.5, metalness: 0, toneMapped: false, side: THREE.DoubleSide }); }
+    function extrude(shape, t = 0.06) { const g = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }); g.translate(0, 0, -t / 2); return g; }
+
+    // a flat solid arrow (shaft + head) built in local XY pointing +X
+    function arrowShape(len, w, headL, headW) {
+      const s = new THREE.Shape(); const x0 = -len / 2, x1 = len / 2, xh = x1 - headL;
+      s.moveTo(x0, w / 2); s.lineTo(xh, w / 2); s.lineTo(xh, headW / 2); s.lineTo(x1, 0);
+      s.lineTo(xh, -headW / 2); s.lineTo(xh, -w / 2); s.lineTo(x0, -w / 2); s.closePath(); return s;
+    }
+    // lay a flat shape onto the TOP plane at (pu,pv), facing up, pointing along dir (x-z)
+    const TOPY = 1.55;
+    function onTop(shape, pu, pv, dir, floatY = 0.22, t = 0.05) {
+      const m = new THREE.Mesh(extrude(shape, t), amat());
+      const z = new THREE.Vector3(0, 1, 0), x = new THREE.Vector3(dir[0], 0, dir[1]).normalize();
+      const y = new THREE.Vector3().crossVectors(z, x).normalize();
+      m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+      m.position.set(pu, TOPY + floatY, pv); return m;
+    }
+    const tang = (pu, pv) => [pv, -pu]; // tangential (a consistent spin sense) at (pu,pv)
+
+    const APPROACHES = [
+      { name: '八向箭环', desc: '面上方一圈 8 个切向箭头,组成"转盘",对称清晰', make() {
+        const g = new THREE.Group();
+        for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, pu = 1.05 * Math.cos(a), pv = 1.05 * Math.sin(a);
+          g.add(onTop(arrowShape(0.5, 0.1, 0.22, 0.28), pu, pv, tang(pu, pv))); } return g; } },
+
+      { name: '每格箭头', desc: '活动面每个非中心格一个切向小箭头(参考图那种)', make() {
+        const g = new THREE.Group();
+        for (const pu of [-UNIT, 0, UNIT]) for (const pv of [-UNIT, 0, UNIT]) { if (!pu && !pv) continue;
+          g.add(onTop(arrowShape(0.44, 0.1, 0.2, 0.26), pu, pv, tang(pu, pv), 0.16)); } return g; } },
+
+      { name: '四向大箭头', desc: '面上四个方位各一支较大切向箭头,4 折对称', make() {
+        const g = new THREE.Group();
+        for (const a of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) { const pu = 1.02 * Math.cos(a), pv = 1.02 * Math.sin(a);
+          g.add(onTop(arrowShape(0.9, 0.16, 0.32, 0.42), pu, pv, tang(pu, pv))); } return g; } },
+
+      { name: '悬浮环形箭 ↻', desc: '面正上方悬浮一个圆形旋转箭头(标注感,不贴面)', make() {
+        const g = new THREE.Group(); const R = 0.9, N = 40, band = 0.12;
+        const a0 = -0.5, a1 = -0.5 + Math.PI * 1.7, aH = a1 - 0.5;
+        const s = new THREE.Shape();
+        const ro = R + band / 2, ri = R - band / 2;
+        s.moveTo(ro * Math.cos(a0), ro * Math.sin(a0));
+        for (let i = 1; i <= N; i++) { const a = a0 + (aH - a0) * i / N; s.lineTo(ro * Math.cos(a), ro * Math.sin(a)); }
+        s.lineTo((ro + 0.16) * Math.cos(aH), (ro + 0.16) * Math.sin(aH));
+        s.lineTo(R * Math.cos(a1), R * Math.sin(a1));
+        s.lineTo((ri - 0.16) * Math.cos(aH), (ri - 0.16) * Math.sin(aH));
+        for (let i = N; i >= 0; i--) { const a = a0 + (aH - a0) * i / N; s.lineTo(ri * Math.cos(a), ri * Math.sin(a)); }
+        s.closePath();
+        const m = new THREE.Mesh(extrude(s, 0.05), amat());
+        m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0)));
+        m.position.set(0, TOPY + 0.9, 0); g.add(m); return g; } },
+
+      { name: '前排平行箭头', desc: '活动层前排 3 支平行箭头指向运动方向(此处向右)', make() {
+        const g = new THREE.Group();
+        for (const px of [-UNIT, 0, UNIT]) {
+          const s = arrowShape(0.7, 0.14, 0.28, 0.36);
+          const m = new THREE.Mesh(extrude(s, 0.05), amat());
+          // front face plane: normal +z, arrow points +x
+          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)));
+          m.position.set(px, UNIT, TOPY + 0.18); g.add(m);
+        } return g; } },
+
+      { name: '十二向密箭环', desc: '更密的一圈 12 个小箭头,转盘感更强', make() {
+        const g = new THREE.Group();
+        for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6, pu = 1.08 * Math.cos(a), pv = 1.08 * Math.sin(a);
+          g.add(onTop(arrowShape(0.34, 0.07, 0.16, 0.2), pu, pv, tang(pu, pv))); } return g; } },
+    ];
+
+    const grid = document.getElementById('grid');
+    const views = [];
+    APPROACHES.forEach((ap, idx) => {
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const canvas = document.createElement('canvas');
+      const cap = document.createElement('div'); cap.className = 'cap';
+      cap.innerHTML = `<b><span class="n">#${idx + 1}</span>${ap.name}</b><span>${ap.desc}</span>`;
+      cell.append(canvas, cap); grid.appendChild(cell);
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+      const scene = new THREE.Scene();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x556, 1.15));
+      const key = new THREE.DirectionalLight(0xffffff, 1.9); key.position.set(5, 9, 6); scene.add(key);
+      const fill = new THREE.DirectionalLight(0xbcd0ff, 0.6); fill.position.set(-6, 2, -3); scene.add(fill);
+      const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+      camera.position.set(4.4, 3.6, 6.2); camera.lookAt(0, 0, 0); // optimal 3/4 (top visible)
+      const controls = new OrbitControls(camera, canvas); controls.enableZoom = false; controls.enablePan = false; controls.enableDamping = true;
+      const cube = new RubiksCube(); scrambleColours(cube); applyC(cube); scene.add(cube.group);
+      const a = ap.make(); cube.group.add(a);
+      // bright arrow material shared: recolour all arrow meshes yellow-emissive
+      a.traverse(o => { if (o.material) o.material = new THREE.MeshStandardMaterial({ color: 0xffd21f, emissive: 0xffb200, emissiveIntensity: 0.9, roughness: 0.32, metalness: 0, toneMapped: false, side: THREE.DoubleSide }); });
+      views.push({ renderer, scene, camera, controls, canvas, arrowMats: a });
+    });
+    function resize(v) { const w = v.canvas.clientWidth, h = v.canvas.clientHeight; if (v.canvas.width !== w || v.canvas.height !== h) { v.renderer.setSize(w, h, false); v.camera.aspect = w / h; v.camera.updateProjectionMatrix(); } }
+    (function loop() {
+      requestAnimationFrame(loop);
+      const b = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(performance.now() / 360));
+      for (const v of views) { resize(v); v.controls.update(); v.arrowMats.traverse(o => o.material && o.material.emissive && (o.material.emissiveIntensity = b)); v.renderer.render(v.scene, v.camera); }
+    })();
+  </script>
+</body>
+</html>
