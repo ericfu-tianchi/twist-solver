@@ -35,6 +35,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 // the whole guided solve, so every arrow (even a Back turn) reads without moving.
 const FRONT_VIEW = new THREE.Vector3(0, 0, 8);
 const SOLVE_VIEW = new THREE.Vector3(4.6, 3.7, 6.4);
+const SOLVE_LIFT = 1.35; // raise the cube during solve so bottom arrows clear the panel
 const MIN_DIST = 5;
 const MAX_DIST = 18;
 camera.position.copy(FRONT_VIEW);
@@ -438,6 +439,20 @@ function orbitCameraTo(target, dur = 620) {
   });
 }
 
+// raise/lower the whole cube (used during solve so bottom arrows clear the panel)
+function liftCube(to, dur = 520) {
+  const from = cube.group.position.y;
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  let start = null;
+  const step = ts => {
+    if (start === null) start = ts;
+    const t = Math.min(1, (ts - start) / dur);
+    cube.group.position.y = from + (to - from) * ease(t);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 // --- human-readable hint for a move ----------------------------------------
 const FACE_CN = {
   U: '顶层 (上面)', D: '底层 (下面)', L: '左面', R: '右面', F: '前面', B: '后面 (背面)',
@@ -522,6 +537,7 @@ async function startSolve() {
   solvePanel.hidden = false;
   solveAuto.classList.remove('on');
   solveAuto.textContent = '自动 ▶';
+  liftCube(SOLVE_LIFT); // raise the cube so bottom-face arrows clear the panel
   await orbitCameraTo(SOLVE_VIEW); // lock to the fixed 3/4 for the whole solve
   await showStep();
 }
@@ -573,6 +589,7 @@ function exitSolve(finished) {
   cube.turnDuration = 240; // snappy again for manual play
   solvePanel.hidden = true;
   dock.hidden = false;
+  liftCube(0); // lower the cube back to centre
   homeView(); // back to the standard front view
   if (finished) toast('还原完成，恭喜 🎉');
 }
