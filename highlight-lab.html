@@ -79,12 +79,13 @@
       return g;
     }
 
-    // fade every sticker EXCEPT the 9 on the top face (local +y sticker, position.y > 0.4)
+    // fade every cubie EXCEPT the whole turning layer (the top row/layer here) — a
+    // U turn rotates all 9 top cubies: the top face AND the ring of side stickers.
     function fadeCube(cube, fn) {
-      cube.cubies.forEach(cu => cu.children.forEach(ch => {
-        if (!ch.userData.isSticker || ch.position.y > 0.4) return; // keep the top face at full colour
-        fn(ch.material.color);
-      }));
+      cube.cubies.forEach(cu => {
+        if (Math.round(cu.position.y / UNIT) === 1) return; // whole top layer keeps full colour
+        cu.children.forEach(ch => { if (ch.userData.isSticker) fn(ch.material.color); });
+      });
     }
     const WHITE = new THREE.Color(0xffffff);
     const towardWhite = a => c => c.lerp(WHITE.clone(), a);
