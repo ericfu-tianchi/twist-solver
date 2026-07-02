@@ -499,10 +499,12 @@ function setSpeed(s) {
     b.classList.toggle('on', parseFloat(b.dataset.speed) === s));
 }
 
-let solveFn = null;
-async function ensureSolver() {
-  if (!solveFn) ({ solve: solveFn } = await import('./solver.js'));
-  return solveFn;
+let solveMode = 'short'; // 'short' (Kociemba ~20 moves) or 'basic' (LBL ~130)
+const SOLVER_SRC = { short: './solverShort.js', basic: './solver.js' };
+const solveFns = {};
+async function ensureSolver(mode) {
+  if (!solveFns[mode]) ({ solve: solveFns[mode] } = await import(SOLVER_SRC[mode]));
+  return solveFns[mode];
 }
 
 async function startSolve() {
@@ -518,7 +520,9 @@ async function startSolve() {
 
   let steps;
   try {
-    const solve = await ensureSolver();
+    if (solveMode === 'short') toast('计算最短路径中…（首次约 1–2 秒）');
+    await new Promise(r => setTimeout(r, 30)); // let the toast paint before init blocks
+    const solve = await ensureSolver(solveMode);
     steps = solve(state).steps;
   } catch (err) {
     solving = false;
@@ -677,7 +681,7 @@ async function applyEditor() {
       cube.paint(face, FACELET_POS[face][idx], netData[face][idx]);
 
   try {
-    const solve = await ensureSolver();
+    const solve = await ensureSolver(solveMode);
     solve(cube.getState()); // solvability check
   } catch (err) {
     editMsg.className = 'edit-msg err';
@@ -722,6 +726,13 @@ document.getElementById('editReset').addEventListener('click', () => {
 // playback speed (auto mode)
 document.querySelectorAll('[data-speed]').forEach(btn =>
   btn.addEventListener('click', () => setSpeed(parseFloat(btn.dataset.speed))));
+
+// solve method: 最短 (short) / 基础 (basic)
+document.querySelectorAll('[data-mode]').forEach(btn =>
+  btn.addEventListener('click', () => {
+    solveMode = btn.dataset.mode;
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b === btn));
+  }));
 
 // cube size slider (left rail)
 const sizeSlider = document.getElementById('sizeSlider');
