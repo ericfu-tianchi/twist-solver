@@ -586,6 +586,14 @@ $('recenter').addEventListener('click', recenter);
 mauto.addEventListener('click', toggleAuto);
 document.querySelectorAll('#mspeed [data-speed]').forEach(b => b.addEventListener('click', () => setSpeed(parseFloat(b.dataset.speed))));
 
+// Instant tap feedback: iOS applies :active laggily on touch (you'd have to hold
+// a button to see it press), so mirror it with a .pressed class on pointerdown
+// and clear it on release. Delegated so it covers dynamically-built editor cells.
+const clearPressed = () => { for (const b of document.querySelectorAll('button.pressed')) b.classList.remove('pressed'); };
+document.addEventListener('pointerdown', e => { const b = e.target.closest('button'); if (b) b.classList.add('pressed'); }, { passive: true });
+document.addEventListener('pointerup', clearPressed, { passive: true });
+document.addEventListener('pointercancel', clearPressed, { passive: true });
+
 // --- boot -------------------------------------------------------------------
 onResize();
 setMode('short');
