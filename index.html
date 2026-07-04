@@ -4,6 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Twist Solver</title>
+  <script>
+    // One shared link: phones auto-get the mobile layout. ?desktop=1 forces the desktop version.
+    (function () {
+      try {
+        if (/[?&]desktop=1/.test(location.search)) return;
+        var ua = navigator.userAgent || '';
+        var phone = /iPhone|iPod|Android.+Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+        var touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        var narrow = Math.min(window.innerWidth, window.innerHeight) <= 640;
+        if (phone || (touch && narrow)) location.replace('mobile.html' + location.search);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="icon" href="./twist-logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
