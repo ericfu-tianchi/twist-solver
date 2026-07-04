@@ -199,7 +199,7 @@ button, .cell, .swatch { touch-action: manipulation; }
 .eclose{ margin-left:auto; width:38px; height:38px; border-radius:10px; border:1px solid var(--border);
   background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center; }
 .eclose svg{ width:18px; height:18px; }
-.esub{ flex:0 0 auto; font-size:12.5px; color:var(--muted); line-height:1.5; margin:6px 0 12px; }
+.esub{ flex:0 0 auto; font-size:12.5px; color:var(--muted); line-height:1.45; margin:5px 0 9px; }
 .esub b{ color:var(--text); font-weight:600; }
 
 /* the NET is the only scroller: it takes the leftover height and scrolls locally only
@@ -219,16 +219,19 @@ button, .cell, .swatch { touch-action: manipulation; }
   width:8px; height:8px; border-radius:50%; background:rgba(27,31,39,.30); }
 .cell:not(.center):active{ transform:scale(.9); }
 
-/* full-bleed top edge so the pinned bottom cluster (palette + Check & Apply)
-   reads as a lifted panel over the scrolling net — same lift as the home dock */
-.palette{ flex:0 0 auto; display:flex; justify-content:center; flex-wrap:wrap; gap:12px;
-  margin:0 -15px 10px; padding:14px 15px 0; box-shadow:0 -7px 18px rgba(27,31,39,.07); }
+/* pinned bottom panel: a full-bleed top shadow lifts it off the scrolling net
+   (same lift as the home dock). The error row lives inside it, above the palette. */
+.edit-dock{ flex:0 0 auto; margin:0 -15px; padding:12px 15px 0; box-shadow:0 -7px 18px rgba(27,31,39,.07); }
+.palette{ flex:0 0 auto; display:flex; justify-content:center; flex-wrap:wrap; gap:12px; margin:0 0 10px; }
 .swatch{ width:44px; height:44px; border-radius:12px; border:2px solid rgba(27,31,39,.16);
   background-clip:padding-box; } /* colour stays inside the single border — no double edge */
 .swatch.sel{ border:3px solid var(--ink); }
 .swatch:active{ transform:scale(.94); }
 
-.edit-msg{ flex:0 0 auto; font-size:13px; min-height:18px; line-height:1.4; color:var(--muted); text-align:center; margin-bottom:10px; }
+/* collapses to zero height when empty — no reserved row; a real (error) message
+   appears here, above the palette, only when something's wrong */
+.edit-msg{ font-size:13px; line-height:1.35; color:var(--muted); text-align:center; margin:0 0 9px; }
+.edit-msg:empty{ display:none; }
 .edit-msg.err{ color:var(--danger); } .edit-msg.ok{ color:var(--accent); }
 
 .edit-actions{ flex:0 0 auto; display:flex; flex-direction:column; gap:10px; }
@@ -257,3 +260,5 @@ button, .cell, .swatch { touch-action: manipulation; }
 .cta{ transition:transform .06s ease, box-shadow .06s ease; }
 .cta:active, .cta.pressed{ transform:translate(3px,3px); box-shadow:none; }
 .solve-combo:has(.solve-cta:active), .solve-combo:has(.solve-cta.pressed){ transform:translate(3px,3px); box-shadow:none; }
+/* disabled nav buttons (Next while Auto plays, Prev on step 1): clearly inert, no press */
+.nav-prev:disabled, .cta:disabled{ opacity:.4; box-shadow:none; transform:none; }
