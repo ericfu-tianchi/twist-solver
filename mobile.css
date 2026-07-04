@@ -56,6 +56,12 @@ button:disabled{ opacity:.4; pointer-events:none; }
 #scene{ position:absolute; inset:0; touch-action:none; z-index:2; }
 #scene canvas{ display:block; }
 
+/* iOS ignores maximum-scale, so tapping controls quickly (e.g. editor cells)
+   triggers double-tap-to-zoom. `manipulation` disables that gesture (and the
+   300ms tap delay) on the controls while keeping normal taps/scroll; the cube's
+   own pinch-zoom lives on #scene above and is untouched. */
+button, .cell, .swatch { touch-action: manipulation; }
+
 .badge{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:4;
   display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--border);
   border-radius:10px; padding:6px 11px 6px 7px; box-shadow:0 6px 18px rgba(27,31,39,.12); max-width:88%; }
