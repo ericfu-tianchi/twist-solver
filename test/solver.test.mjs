@@ -174,6 +174,22 @@ test('the emitted solution uses only face moves (no whole-cube rotations)', () =
   }
 });
 
+// A follower should never be told to turn the same face twice in a row (e.g. U'
+// then U, or U2 then U): those cancel/combine and read as a mistake. The seam
+// simplifier must remove every such run — flat AND within each phase's steps.
+test('no redundant consecutive same-face moves (500 scrambles)', () => {
+  for (let i = 0; i < 500; i++) {
+    const scr = randomScramble(25);
+    const { steps } = solve(new CubeState().moves(scr));
+    const flat = steps.flatMap(s => s.moves);
+    for (let k = 1; k < flat.length; k++)
+      assert.notEqual(flat[k][0], flat[k - 1][0],
+        `scramble #${i}: consecutive same-face "${flat[k - 1]} ${flat[k]}" should be simplified`);
+    // and it must still solve, so the simplification stayed effect-preserving
+    assert.ok(new CubeState().moves(scr).moves(flat).isSolved(), `scramble #${i} no longer solves`);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The correctness oracle: 2000 random scrambles must all solve.
 // ---------------------------------------------------------------------------
