@@ -50,9 +50,10 @@ Both `/` (desktop) and `/mobile.html` are served. The port is arbitrary — pass
 ## Tests
 
 The cube state model and both solvers are covered by a test suite — each solver is verified against
-2000 random scrambles:
+2000 random scrambles. Install the test-only dependency (`cubejs`) first, then run the suite:
 
 ```bash
+npm install   # only needed for the tests; the app itself loads its libraries from a CDN
 npm test
 ```
 
