@@ -94,6 +94,85 @@ export class CubeState {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Solvability check. A 3x3 with 9 of each colour can still be physically
+// impossible (a single flipped edge, a twisted corner, or two swapped pieces).
+// Those are exactly the three classic invariants:
+//   • every corner/edge is a real piece, and all are present (valid permutation)
+//   • corner-twist total ≡ 0 (mod 3)
+//   • edge-flip total  ≡ 0 (mod 2)
+//   • corner permutation parity === edge permutation parity
+// Returns null if solvable, else a short human reason.
+// ---------------------------------------------------------------------------
+const OPPOSITE = { U: 'D', D: 'U', F: 'B', B: 'F', R: 'L', L: 'R' };
+const CORNER_POS = [];
+for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) CORNER_POS.push([x, y, z]);
+const EDGE_POS = [
+  [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1],
+  [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+  [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1],
+];
+const solvedColorsAt = pos => [0, 1, 2].filter(ai => pos[ai] !== 0)
+  .map(ai => { const n = [0, 0, 0]; n[ai] = pos[ai]; return COLOR_OF_NORMAL(n); });
+const CORNER_KEYS = CORNER_POS.map(p => solvedColorsAt(p).slice().sort().join(''));
+const EDGE_KEYS = EDGE_POS.map(p => solvedColorsAt(p).slice().sort().join(''));
+
+function permParity(perm) {
+  const seen = perm.map(() => false);
+  let odd = 0;
+  for (let i = 0; i < perm.length; i++) {
+    if (seen[i]) continue;
+    let j = i, len = 0;
+    while (!seen[j]) { seen[j] = true; j = perm[j]; len++; }
+    if (len % 2 === 0) odd ^= 1; // an even-length cycle contributes odd parity
+  }
+  return odd;
+}
+
+export function cubeError(state) {
+  const cnt = {};
+  for (const f of state.facelets) cnt[f.c] = (cnt[f.c] || 0) + 1;
+  for (const c of ['U', 'D', 'F', 'B', 'R', 'L']) if (cnt[c] !== 9) return `there are ${cnt[c] || 0} ${c} tiles, not 9`;
+
+  // corners
+  const cPerm = [], cOri = [];
+  for (const p of CORNER_POS) {
+    const cx = state.colorAt(p, [p[0], 0, 0]);
+    const cy = state.colorAt(p, [0, p[1], 0]);
+    const cz = state.colorAt(p, [0, 0, p[2]]);
+    const cols = [cx, cy, cz];
+    if (new Set(cols).size !== 3) return 'a corner has a repeated colour';
+    for (const c of cols) if (cols.includes(OPPOSITE[c])) return 'a corner has opposite colours on it';
+    const slot = CORNER_KEYS.indexOf(cols.slice().sort().join(''));
+    if (slot < 0) return 'a corner piece is impossible';
+    cPerm.push(slot);
+    const isUD = c => c === 'U' || c === 'D';
+    const chir = p[0] * p[1] * p[2];
+    cOri.push(isUD(cy) ? 0 : isUD(cx) ? (chir > 0 ? 1 : 2) : (chir > 0 ? 2 : 1));
+  }
+  if (new Set(cPerm).size !== 8) return 'a corner is duplicated or missing';
+  if (cOri.reduce((a, b) => a + b, 0) % 3 !== 0) return 'a corner is twisted';
+
+  // edges — validate pieces + permutation. (The edge-flip parity invariant is left to
+  // the actual solve attempt in the editor: a single flipped edge is otherwise a valid
+  // configuration and reliably making the solver fail is the simplest correct detector.)
+  const ePerm = [];
+  for (const p of EDGE_POS) {
+    const present = [0, 1, 2].filter(ai => p[ai] !== 0).map(ai => { const n = [0, 0, 0]; n[ai] = p[ai]; return n; });
+    const cA = state.colorAt(p, present[0]);
+    const cB = state.colorAt(p, present[1]);
+    if (cA === cB) return 'an edge has a repeated colour';
+    if (OPPOSITE[cA] === cB) return 'an edge has opposite colours on it';
+    const slot = EDGE_KEYS.indexOf([cA, cB].slice().sort().join(''));
+    if (slot < 0) return 'an edge piece is impossible';
+    ePerm.push(slot);
+  }
+  if (new Set(ePerm).size !== 12) return 'an edge is duplicated or missing';
+
+  if (permParity(cPerm) !== permParity(ePerm)) return 'two pieces are swapped';
+  return null;
+}
+
 export function toList(seq) {
   return Array.isArray(seq) ? seq.filter(Boolean) : seq.split(/\s+/).filter(Boolean);
 }

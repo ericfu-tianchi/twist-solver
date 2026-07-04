@@ -1,0 +1,234 @@
+/* Twist Solver — MOBILE. Minimal, single-column, touch-first. Shares the desktop
+   design tokens + "console × soft-arcade" look, trimmed to one flow: Scramble → Solve.
+   The heavy lifting (3D cube, solvers, arrows) is reused from src/*.js. */
+:root{
+  --bg:#F7F8FA; --panel:#FFFFFF; --raised:#F2F4F7; --border:#E4E8EE;
+  --text:#1B1F27; --muted:#7A8393; --faint:#AEB5C0; --accent:#00A24B;
+  --accent-dim:rgba(0,162,75,.10); --accent-line:rgba(0,162,75,.35);
+  --ink:#1B1F27; --danger:#D01B2E; --o:#FF6A00; --b:#0A57C7;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ui:"Inter",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+  --shadow:3px 3px 0 var(--ink);
+}
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; }
+body{ margin:0; background:var(--bg); color:var(--text); font-family:var(--ui); font-size:14px;
+  line-height:1.45; -webkit-font-smoothing:antialiased; overscroll-behavior:none; }
+[hidden]{ display:none !important; }
+button{ font-family:inherit; cursor:pointer; color:var(--text); border:0; background:none; }
+button:disabled{ opacity:.4; pointer-events:none; }
+
+.app{ position:relative; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
+
+/* ---------- HEADER ---------- */
+.mtop{ display:flex; align-items:center; gap:9px; padding:10px 15px;
+  padding-top:calc(10px + env(safe-area-inset-top)); border-bottom:1px solid var(--border);
+  background:var(--panel); z-index:5; }
+.mtop .logo{ width:26px; height:26px; object-fit:contain; }
+.wordmark{ font-family:"Orbitron",var(--ui); font-weight:800; font-size:15px; letter-spacing:.01em;
+  color:var(--text); display:inline-block; line-height:1; white-space:pre; }
+.wordmark .sv{ color:var(--accent); }
+.wordmark .di{ position:relative; }
+.wordmark .di .cube{ position:absolute; left:50%; width:.26em; height:.26em; border-radius:.06em;
+  background:var(--accent); box-shadow:inset 0 0 0 .02em rgba(0,0,0,.12);
+  transform:translate(-50%,0) rotate(20deg); top:-.02em; }
+.state{ margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:12px;
+  font-weight:500; color:var(--text); }
+.state .dot{ width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
+.state.scrambled .dot{ background:var(--o); box-shadow:0 0 0 3px rgba(255,106,0,.12); }
+.state.solving .dot{ background:var(--b); box-shadow:0 0 0 3px rgba(10,87,199,.12); }
+/* method readout next to "Solving" (mirrors desktop) — keeps the bottom dock header simple */
+.msolver{ display:none; align-items:center; font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; }
+.msolver b{ color:var(--text); font-weight:600; }
+/* dot separator = its own flex child, so the .mtop gap spaces it EQUALLY on both sides */
+.ssep{ display:none; color:var(--faint); font-size:13px; line-height:1; }
+.state.solving ~ .ssep{ display:inline; }
+.state.solving ~ .msolver{ display:inline-flex; }
+
+/* ---------- STAGE ---------- */
+.stage{ position:relative; flex:1 1 auto; min-height:0; overflow:hidden;
+  background:
+    radial-gradient(circle at center, rgba(0,162,75,.05), transparent 46%),
+    radial-gradient(#DCE1E9 1px, transparent 1.4px);
+  background-size:auto, 24px 24px; background-position:center, center; }
+.stage::after{ content:""; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(ellipse 82% 74% at center, transparent 58%, rgba(247,248,250,.85)); z-index:1; }
+#scene{ position:absolute; inset:0; touch-action:none; z-index:2; }
+#scene canvas{ display:block; }
+
+.badge{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:4;
+  display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--border);
+  border-radius:10px; padding:6px 11px 6px 7px; box-shadow:0 6px 18px rgba(27,31,39,.12); max-width:88%; }
+.badge .glyph{ font-family:var(--mono); font-weight:600; font-size:14px; color:#fff;
+  background:var(--accent); border-radius:6px; padding:3px 9px; }
+.badge .lbl{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badge .lbl b{ color:var(--text); font-weight:600; }
+
+.recenter{ position:absolute; right:14px; bottom:14px; z-index:4; width:40px; height:40px;
+  border-radius:11px; border:1px solid var(--border); background:var(--panel); color:var(--muted);
+  display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(27,31,39,.08); }
+.recenter svg{ width:19px; height:19px; }
+.recenter:active{ transform:translateY(1px); }
+
+/* ---------- DOCK (bottom control card) ---------- */
+.dock{ background:var(--panel); border-top:1px solid var(--border); z-index:5;
+  padding:14px 15px calc(14px + env(safe-area-inset-bottom));
+  box-shadow:0 -6px 20px rgba(27,31,39,.05); display:flex; flex-direction:column; gap:12px; }
+
+/* three setup actions: Scramble / Edit colors / Reset (icon over label) */
+.setup-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.setupbtn{ display:flex; flex-direction:column; align-items:center; gap:6px; padding:11px 4px;
+  border:1px solid var(--border); border-radius:12px; background:var(--panel); color:var(--text);
+  font-size:12px; font-weight:600; }
+.setupbtn svg{ width:22px; height:22px; color:var(--muted); }
+.setupbtn:active{ transform:translateY(1px); background:var(--raised); }
+.setupbtn.active{ color:var(--o); background:rgba(255,106,0,.10); border-color:rgba(255,106,0,.3); }
+.setupbtn.active svg{ color:var(--o); }
+.btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; font-size:15px;
+  font-weight:600; color:var(--text); border-radius:12px; padding:13px 16px; }
+.btn svg{ width:18px; height:18px; }
+.ghost{ border:1px solid var(--border); background:var(--panel); color:var(--text); }
+.ghost svg{ color:var(--muted); }
+.ghost:active{ transform:translateY(1px); background:var(--raised); }
+.ghost.active{ color:var(--o); background:rgba(255,106,0,.10); border-color:rgba(255,106,0,.3); }
+.ghost.active svg{ color:var(--o); }
+
+/* method + Solve as ONE connected capsule (no "Method" label): the two method tabs
+   sit on top and flow straight into the Solve button; the selected tab drops a green
+   connector into the (green) Solve so the choice visibly "feeds" the button. */
+.solve-combo{ border:1.5px solid var(--ink); border-radius:14px; box-shadow:var(--shadow);
+  overflow:hidden; transition:transform .05s ease, box-shadow .05s ease; }
+.solve-combo:has(.solve-cta:active){ transform:translate(2px,2px); box-shadow:1px 1px 0 var(--ink); }
+.method-tabs{ display:grid; grid-template-columns:1fr 1fr; border-bottom:1.5px solid var(--ink); }
+.mtab{ position:relative; display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:10px 6px 11px; font-size:14px; font-weight:600; color:var(--muted); background:var(--panel); }
+.mtab .sub{ font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--faint); }
+.mtab:first-child{ border-right:1.5px solid var(--ink); }
+.mtab.on{ color:var(--text); background:var(--accent-dim); }
+.mtab.on .sub{ color:var(--accent); }
+.solve-cta{ width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+  color:#fff; background:var(--accent); border:0; border-radius:0; padding:15px 16px; font-size:16px; font-weight:600; }
+.solve-cta svg{ width:18px; height:18px; }
+
+/* big arcade CTA */
+.cta{ width:100%; display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  color:#fff; background:var(--accent); border:1.5px solid var(--ink);
+  border-radius:13px; padding:15px 16px; font-size:16px; font-weight:600; box-shadow:var(--shadow); }
+.cta svg{ width:18px; height:18px; }
+.cta:active{ transform:translate(2px,2px); box-shadow:1px 1px 0 var(--ink); }
+
+/* ---------- SOLVE dock ---------- */
+.solve-head{ display:flex; align-items:center; gap:10px; }
+.stepc{ font-family:var(--mono); font-size:13px; font-weight:600; color:var(--text); }
+.stepc b{ color:var(--accent); }
+.mnow{ font-family:var(--mono); font-size:11px; color:var(--muted); padding:3px 8px;
+  border:1px solid var(--border); border-radius:6px; }
+/* right side of the head: speed then a red ✕ Exit (same height, for consistency) */
+.head-right{ margin-left:auto; display:flex; align-items:center; gap:9px; flex:0 0 auto; }
+.exit{ display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; padding:0;
+  color:var(--danger); border:1px solid rgba(208,27,46,.35); border-radius:10px; background:var(--panel); flex:0 0 auto; }
+.exit svg{ width:16px; height:16px; }
+.exit:active{ transform:translateY(1px); background:rgba(208,27,46,.06); }
+
+.pbar{ height:5px; border-radius:3px; background:var(--raised); overflow:hidden; border:1px solid var(--border); }
+.pbar i{ display:block; height:100%; width:0; background:var(--accent); border-radius:3px; transition:width .28s ease; }
+
+.hint{ display:flex; gap:7px; align-items:flex-start; font-size:12.5px; color:var(--muted); line-height:1.5; }
+.hint svg{ width:15px; height:15px; color:var(--accent); flex-shrink:0; margin-top:1px; }
+.hint b{ color:var(--text); font-weight:600; }
+
+/* horizontal move strip */
+/* grouped phase strip (adaptive): Beginner shows phase labels; Shortest is compact */
+.strip{ display:flex; align-items:stretch; overflow-x:auto; scrollbar-width:none; scroll-behavior:smooth;
+  background:var(--bg); border:1px solid var(--border); border-radius:11px; }
+.strip::-webkit-scrollbar{ display:none; }
+.strip.solo{ align-items:center; }
+.strip .grp{ display:flex; flex-direction:column; flex:0 0 auto; justify-content:flex-end; }
+.strip .grp + .grp{ border-left:1px solid var(--border); }
+.strip .glabel{ font-size:8px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--faint);
+  padding:8px 11px 3px; white-space:nowrap; }
+.strip .gchips{ display:flex; align-items:center; gap:2px; padding:2px 9px 10px; }
+.strip.solo .gchips{ padding:12px 10px; }
+.chip{ font-family:var(--mono); font-weight:600; font-size:14px; color:var(--muted);
+  height:34px; min-width:30px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.chip .box{ padding:5px 0; width:30px; text-align:center; border-radius:7px; }
+.chip.done{ color:#B4BAC4; } .chip.up{ color:var(--text); }
+.chip .prime{ color:var(--accent); } .chip.done .prime{ color:#9DBFAC; }
+.chip .two{ color:#C99A00; }
+.chip.cur .box{ background:var(--accent); color:#fff; border:1.5px solid var(--ink); box-shadow:var(--shadow); }
+.chip.cur .prime,.chip.cur .two{ color:#fff; }
+
+/* speed toggle in the head (same 32px height as the ✕ Exit beside it) */
+.mspeed{ display:inline-flex; align-items:center; height:38px; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:0 4px; gap:2px; }
+.mspeed .msp{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--muted); padding:8px 11px; border-radius:7px; }
+.mspeed .msp.on{ color:var(--text); background:var(--panel); box-shadow:inset 0 0 0 1px var(--border); }
+
+/* nav row: ◀ prev · Auto · Next (all stretch to one height) */
+.nav{ display:flex; align-items:stretch; gap:9px; }
+.nav-prev{ width:48px; flex:0 0 auto; border:1px solid var(--border); background:var(--panel); color:var(--muted);
+  border-radius:12px; display:flex; align-items:center; justify-content:center; }
+.nav-prev svg{ width:18px; height:18px; }
+.nav-prev:active{ transform:translateY(1px); background:var(--raised); }
+/* Auto: neutral ghost (no green fill), green play/pause icon, even icon–text spacing */
+.mauto{ flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:14px; font-weight:600;
+  color:var(--text); padding:0 17px; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+.mauto .i{ display:inline-flex; color:var(--accent); } .mauto .i svg{ width:13px; height:13px; display:block; }
+.mauto.on{ background:var(--raised); } /* subtle active state while playing */
+.mauto:active{ transform:translateY(1px); }
+.nav-next{ flex:1 1 auto; width:auto; gap:8px; }
+
+/* ---------- TOAST ---------- */
+.toast{ position:fixed; left:50%; top:calc(64px + env(safe-area-inset-top)); transform:translateX(-50%) translateY(-10px);
+  z-index:60; padding:10px 16px; border-radius:11px; background:var(--panel); border:1.5px solid var(--ink);
+  box-shadow:4px 4px 0 var(--ink); font-size:13.5px; font-weight:500; opacity:0; pointer-events:none;
+  transition:opacity .25s ease, transform .25s ease; max-width:86%; text-align:center; }
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* ---------- COLOUR EDITOR (sheet — fills the .app phone frame, not the whole desktop) ---------- */
+.esheet{ position:absolute; inset:0; z-index:70; background:var(--panel); overflow:hidden;
+  display:flex; flex-direction:column;
+  padding:calc(14px + env(safe-area-inset-top)) 15px calc(14px + env(safe-area-inset-bottom)); }
+.esheet-head{ flex:0 0 auto; display:flex; align-items:center; }
+.esheet-head h2{ margin:0; font-size:20px; font-weight:700; letter-spacing:-.01em; }
+.eclose{ margin-left:auto; width:38px; height:38px; border-radius:10px; border:1px solid var(--border);
+  background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center; }
+.eclose svg{ width:18px; height:18px; }
+.esub{ flex:0 0 auto; font-size:12.5px; color:var(--muted); line-height:1.5; margin:6px 0 12px; }
+.esub b{ color:var(--text); font-weight:600; }
+
+/* the NET is the only scroller: it takes the leftover height and scrolls locally only
+   if the phone is too short; palette + actions stay pinned & always visible (no page scroll) */
+.net-wrap{ flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; justify-content:center; align-items:safe center; scrollbar-width:none; }
+.net-wrap::-webkit-scrollbar{ display:none; }
+/* fluid net: tiles fill the width so they're as large (thumb-friendly) as possible */
+.cube-net{ width:min(100%, 360px); display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:0 auto;
+  grid-template-areas:". u ." "l f r" ". d ." ". b ."; }
+.net-face{ display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+.net-face.u{ grid-area:u; } .net-face.l{ grid-area:l; } .net-face.f{ grid-area:f; }
+.net-face.r{ grid-area:r; } .net-face.b{ grid-area:b; } .net-face.d{ grid-area:d; }
+.cell{ aspect-ratio:1; width:100%; border-radius:8px; border:1px solid rgba(27,31,39,.14); padding:0;
+  box-shadow:inset 0 1px 2px rgba(27,31,39,.10); }
+.cell.center{ position:relative; }
+.cell.center::after{ content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:8px; height:8px; border-radius:50%; background:rgba(27,31,39,.30); }
+.cell:not(.center):active{ transform:scale(.9); }
+
+.palette{ flex:0 0 auto; display:flex; justify-content:center; flex-wrap:wrap; gap:12px; margin:12px 0 10px; }
+.swatch{ width:44px; height:44px; border-radius:12px; border:2px solid rgba(27,31,39,.16);
+  background-clip:padding-box; } /* colour stays inside the single border — no double edge */
+.swatch.sel{ border:3px solid var(--ink); }
+.swatch:active{ transform:scale(.94); }
+
+.edit-msg{ flex:0 0 auto; font-size:13px; min-height:18px; line-height:1.4; color:var(--muted); text-align:center; margin-bottom:10px; }
+.edit-msg.err{ color:var(--danger); } .edit-msg.ok{ color:var(--accent); }
+
+.edit-actions{ flex:0 0 auto; display:flex; flex-direction:column; gap:10px; }
+.edit-sec{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.minibtn{ font-size:14px; font-weight:600; color:var(--text); padding:14px 8px; border:1px solid var(--border);
+  border-radius:12px; background:var(--panel); }
+.minibtn:active{ transform:translateY(1px); background:var(--raised); }
+
+/* wider phones / small tablets: cap the content width, center it */
+@media (min-width:620px){
+  .app{ max-width:520px; margin:0 auto; border-left:1px solid var(--border); border-right:1px solid var(--border); }
+}

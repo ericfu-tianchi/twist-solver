@@ -1,9 +1,13 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Cubic Solver</title>
+  <title>Twist Solver</title>
+  <link rel="icon" href="./twist-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&family=Orbitron:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
   {
@@ -17,129 +21,182 @@
   </script>
 </head>
 <body>
-  <div id="scene"></div>
+  <div class="app" id="app">
 
-  <div class="size-rail" title="魔方大小">
-    <span>大</span>
-    <input id="sizeSlider" type="range" min="0.5" max="1.2" step="0.02" />
-    <span>小</span>
-  </div>
-
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">◧</span>
-      <div>
-        <h1>Cubic&nbsp;Solver</h1>
-        <p>跟着屏幕，一步步复原你的魔方</p>
+    <!-- TOP BAR -->
+    <header class="top">
+      <div class="brand">
+        <img class="logo" src="./twist-logo.png" alt="Twist Solver" />
+        <span class="wordmark">Tw<span class="di">ı<span class="cube"></span></span>st <span class="sv">Solver</span></span>
+        <span class="bardiv"></span>
+        <span class="state" id="statePill"><span class="dot"></span> <span id="stateText">Solved</span></span>
+        <span class="ssep brand-solve-sep" aria-hidden="true">·</span>
+        <span class="brand-solver" id="stateSolver"></span>
       </div>
-    </div>
 
-    <div class="topbar-actions">
-      <button id="recenter" class="pill icon" title="正对视角（C）">
-        <span class="glyph">◎</span> 正对
-      </button>
-      <button id="freeToggle" class="pill" aria-pressed="false" title="Free-look · orbit the cube (Space)">
-        <svg class="orbit-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <ellipse cx="12" cy="12" rx="10" ry="3.6" />
-          <path d="M12 2.5C16.5 6.5 16.5 17.5 12 21.5" />
-          <path d="M12 2.5C7.5 6.5 7.5 17.5 12 21.5" />
-          <polyline points="9 18.5 12 21.6 15 18.5" />
-          <polyline points="4.7 9.4 1.8 12 4.7 14.6" />
-        </svg>
-        Free
-      </button>
-    </div>
-  </header>
+      <!-- centered cube actions (idle) -->
+      <div class="actions" id="topActions">
+        <button class="act" id="scramble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4.2"/><g fill="currentColor" stroke="none"><circle cx="9" cy="9" r="1.35"/><circle cx="15" cy="9" r="1.35"/><circle cx="12" cy="12" r="1.35"/><circle cx="9" cy="15" r="1.35"/><circle cx="15" cy="15" r="1.35"/></g></svg>
+          <span id="scrambleTip">Scramble</span>
+        </button>
+        <button class="act" id="edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><defs><clipPath id="ecClip"><rect x="3.5" y="3.5" width="17" height="17" rx="2.6"/></clipPath></defs><g clip-path="url(#ecClip)" stroke="none"><rect x="3.5" y="3.5" width="5.667" height="5.667" fill="#00A24B"/><rect x="14.833" y="9.167" width="5.667" height="5.667" fill="#D01B2E"/><rect x="3.5" y="14.833" width="5.667" height="5.667" fill="#0A57C7"/></g><rect x="3.5" y="3.5" width="17" height="17" rx="2.6"/><path d="M9.167 3.5v17M14.833 3.5v17M3.5 9.167h17M3.5 14.833h17"/></svg>
+          Edit colors
+        </button>
+        <button class="act" id="reset">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1.2 1.2) scale(0.9)"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g></svg>
+          Reset
+        </button>
+      </div>
 
-  <div class="dock">
-    <section class="panel faces">
-      <div class="panel-title">拧一层 · Turn a layer</div>
-      <div class="btn-row">
-        <button class="face" data-face="U"><i style="background:#f7f7f5"></i>U</button>
-        <button class="face" data-face="D"><i style="background:#ffd500"></i>D</button>
-        <button class="face" data-face="L"><i style="background:#ff5800"></i>L</button>
-        <button class="face" data-face="R"><i style="background:#b71234"></i>R</button>
-        <button class="face" data-face="F"><i style="background:#009b48"></i>F</button>
-        <button class="face" data-face="B"><i style="background:#0046ad"></i>B</button>
+      <!-- right: view controls + state + (exit while solving) -->
+      <div class="rightgroup">
+        <button class="vtool" id="freeToggle" aria-pressed="false" title="Free look · orbit the cube (Space)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9.8" ry="4.2" transform="rotate(45 12 12)"/><ellipse cx="12" cy="12" rx="9.8" ry="4.2" transform="rotate(-45 12 12)"/></svg>
+          Free look
+        </button>
+        <button class="vtool" id="recenter" title="Face-on view (C)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
+          Recenter
+        </button>
+        <button class="exit" id="solveExit" title="Leave the guided solve">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          Exit
+        </button>
       </div>
-      <div class="hint">点击 = 顺时针 · Shift＋点击 / 右键 = 逆时针 · 也可直接在魔方上拖动</div>
-    </section>
+    </header>
 
-    <section class="panel whole">
-      <div class="panel-title">整体旋转 · Rotate cube</div>
-      <div class="btn-row">
-        <button class="ghost" data-move="x"  title="绕 R 方向翻转">x</button>
-        <button class="ghost" data-move="x'" title="反向">x′</button>
-        <button class="ghost" data-move="y"  title="绕 U 方向翻转">y</button>
-        <button class="ghost" data-move="y'" title="反向">y′</button>
-        <button class="ghost" data-move="z"  title="绕 F 方向翻转">z</button>
-        <button class="ghost" data-move="z'" title="反向">z′</button>
+    <!-- STAGE -->
+    <main class="stage">
+      <div id="scene"></div>
+      <div class="artboard-meta">
+        <span><span class="k">orient</span> white up · green front</span>
       </div>
-      <div class="hint">键盘：X / Y / Z（＋Shift 反向）</div>
-    </section>
+      <div class="cube-badge now" id="moveBadge" hidden>
+        <span class="glyph" id="badgeGlyph">R</span>
+        <span class="lbl" id="badgeLabel"></span>
+      </div>
+      <div class="zoomctl">
+        <button id="zoomOut" aria-label="Smaller">−</button>
+        <input class="zval" id="zoomVal" type="text" inputmode="numeric" value="100%" aria-label="Zoom (50–150%)" />
+        <button id="zoomIn" aria-label="Bigger">+</button>
+      </div>
+    </main>
 
-    <section class="panel actions">
-      <div class="panel-title">操作 · Actions</div>
-      <div class="method-row">
-        <span>方法</span>
-        <button class="modebtn on" data-mode="short">最短 · ~20步</button>
-        <button class="modebtn" data-mode="basic">基础 · ~130步</button>
-      </div>
-      <div class="btn-row">
-        <button id="scramble" class="ghost">打乱 Scramble</button>
-        <button id="reset" class="ghost">复原 Reset</button>
-        <button id="edit" class="ghost">编辑 Edit</button>
-        <button id="solve" class="primary">求解 Solve →</button>
-      </div>
-      <div class="hint">「编辑」填入你真实魔方的颜色，或「打乱」后直接「求解」跟着做</div>
-    </section>
-  </div>
+    <!-- INSPECTOR -->
+    <aside class="inspector">
+      <!-- idle / setup -->
+      <div class="insp-idle" id="inspIdle">
+        <div class="idle-scroll">
+          <div class="mini-title">Turn a layer</div>
+          <div class="facepad">
+            <button class="facebtn" data-face="U"><i style="background:#f7f7f5"></i><span class="fl">U<span class="pr">′</span></span></button>
+            <button class="facebtn" data-face="D"><i style="background:#ffd400"></i><span class="fl">D<span class="pr">′</span></span></button>
+            <button class="facebtn" data-face="L"><i style="background:#ff6a00"></i><span class="fl">L<span class="pr">′</span></span></button>
+            <button class="facebtn" data-face="R"><i style="background:#d01b2e"></i><span class="fl">R<span class="pr">′</span></span></button>
+            <button class="facebtn" data-face="F"><i style="background:#00a24b"></i><span class="fl">F<span class="pr">′</span></span></button>
+            <button class="facebtn" data-face="B"><i style="background:#0a57c7"></i><span class="fl">B<span class="pr">′</span></span></button>
+          </div>
+          <div class="idle-hint">Click = clockwise · Shift-click = counter-clockwise · or just drag the cube.</div>
+          <div class="idle-div"></div>
+          <div class="mini-title">Rotate view</div>
+          <div class="rotrow">
+            <button class="chipbtn" data-move="x">x</button>
+            <button class="chipbtn" data-move="x'">x′</button>
+            <button class="chipbtn" data-move="y">y</button>
+            <button class="chipbtn" data-move="y'">y′</button>
+            <button class="chipbtn" data-move="z">z</button>
+            <button class="chipbtn" data-move="z'">z′</button>
+          </div>
+        </div>
 
-  <!-- guided solve panel -->
-  <div id="solvePanel" class="solve-panel" hidden>
-    <div class="solve-head">
-      <span id="solvePhase" class="solve-phase">—</span>
-      <span class="solve-head-btns">
-        <button id="solveView" class="mini" title="回到最佳视角">最佳视角</button>
-        <button id="solveExit" class="mini" title="退出引导">退出 ✕</button>
-      </span>
-    </div>
-    <div class="solve-body">
-      <div id="solveMove" class="solve-move">R</div>
-      <div class="solve-copy">
-        <div id="solveHint" class="solve-hint">跟着箭头拧这一层</div>
-        <div id="solveCounter" class="solve-counter">第 1 / 1 步</div>
+        <!-- Solve dock — hover reveals the method popover; click = Shortest -->
+        <div class="solve-dock">
+          <div class="method-pop" id="methodPop">
+            <div class="cap">Solve method</div>
+            <button class="opt sel" data-mode="short">
+              <span class="oi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
+              <span class="ot"><span class="t">Shortest</span><span class="d">~20 moves · fastest</span></span>
+              <span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            </button>
+            <button class="opt" data-mode="basic">
+              <span class="oi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M4 20V6l8 4-8 4"/></svg></span>
+              <span class="ot"><span class="t">Beginner</span><span class="d">~130 moves · layer by layer</span></span>
+              <span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            </button>
+          </div>
+          <button class="cta" id="solve">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5v14l11-7z"/></svg>
+            Solve
+          </button>
+          <div class="solve-sub">using <b id="methodLabel">Shortest</b> · hover to change method</div>
+        </div>
       </div>
-    </div>
-    <div class="solve-progress"><div id="solveBar" class="solve-bar"></div></div>
-    <div class="solve-speed">
-      <span>自动速度</span>
-      <button class="speed" data-speed="0.5">0.5×</button>
-      <button class="speed on" data-speed="1">1×</button>
-      <button class="speed" data-speed="2">2×</button>
-    </div>
-    <div class="solve-foot">
-      <button id="solvePrev" class="ghost">← 上一步</button>
-      <button id="solveAuto" class="ghost">自动 ▶</button>
-      <button id="solveNext" class="primary">做好了 · 下一步 →</button>
-    </div>
+
+      <!-- solving -->
+      <div class="insp-solve" id="inspSolve" hidden>
+        <div class="insp-head">
+          <div class="insp-title">
+            <h2>Solution</h2>
+            <button class="mini" id="solveView" title="Return to the best viewing angle">Best view</button>
+          </div>
+          <div class="progress">
+            <div class="row"><span class="step" id="progStep">Step 1 / 1</span><span class="pct" id="progPct">0%</span></div>
+            <div class="bar"><i id="progBar"></i></div>
+          </div>
+          <div class="helper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
+            <span>Copy the black arrows on the glowing layer, then tap <b>Next</b>.</span>
+          </div>
+        </div>
+        <div class="steps" id="solutionSteps"></div>
+      </div>
+    </aside>
+
+    <!-- TIMELINE (solving only) -->
+    <footer class="timeline" id="timeline" hidden>
+      <div class="tl-head">
+        <span class="label">Move timeline</span>
+        <div class="tl-controls">
+          <div class="tl-speed" id="speedGrp" title="Auto-play speed">
+            <button class="sp" data-speed="0.5">0.5×</button>
+            <button class="sp on" data-speed="1">1×</button>
+            <button class="sp" data-speed="2">2×</button>
+          </div>
+          <button class="tl-auto" id="solveAuto">Auto ▶</button>
+        </div>
+        <span class="tl-counter" id="tlCounter">Step <b>1</b> / 1</span>
+      </div>
+      <div class="tl-body">
+        <button class="tl-nav" id="solvePrev" aria-label="Previous step">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+        </button>
+        <div class="tl-strip" id="tlStrip"></div>
+        <button class="tl-next" id="solveNext">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </footer>
+
   </div>
 
   <!-- cube editor -->
   <div id="editModal" class="modal" hidden>
     <div class="modal-card">
-      <h2>编辑你的魔方 · Enter your cube</h2>
-      <p class="modal-sub">选一个颜色，点格子涂色。中心块固定。把手上魔方六个面的颜色照着填进来，然后「校验并应用」。</p>
+      <h2>Enter your cube</h2>
+      <p class="modal-sub">Pick a color, then click the tiles to match your real cube. Center tiles are fixed.</p>
       <div class="editor">
         <div id="cubeNet" class="cube-net"></div>
         <div class="editor-side">
           <div class="palette" id="palette"></div>
           <div id="editMsg" class="edit-msg"></div>
           <div class="editor-actions">
-            <button id="editLoad" class="ghost">载入当前</button>
-            <button id="editReset" class="ghost">重置为已还原</button>
-            <button id="editCancel" class="ghost">取消</button>
-            <button id="editApply" class="primary">校验并应用</button>
+            <button id="editLoad" class="ghost">Load current</button>
+            <button id="editReset" class="ghost">Reset to solved</button>
+            <button id="editCancel" class="ghost">Cancel</button>
+            <button id="editApply" class="cta small">Check &amp; Apply</button>
           </div>
         </div>
       </div>

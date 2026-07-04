@@ -31,6 +31,14 @@ const WHOLE = { x: ['x', -1], y: ['y', -1], z: ['z', -1] };
 const HALF = Math.PI / 2;
 const easeInOutCubic = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
+// multiply a colour's HSL saturation/lightness in place (clamped) — used by the solve highlight
+const clamp01 = x => Math.max(0, Math.min(1, x));
+function hslMul(color, s, l) {
+  const h = {};
+  color.getHSL(h);
+  color.setHSL(h.h, clamp01(h.s * s), clamp01(h.l * l));
+}
+
 // outward normal of each face, as an integer axis vector
 export const FACE_NORMAL = {
   U: [0, 1, 0], D: [0, -1, 0], F: [0, 0, 1], B: [0, 0, -1], R: [1, 0, 0], L: [-1, 0, 0],
@@ -70,7 +78,7 @@ export class RubiksCube {
     this.pickables = [];    // meshes usable for raycasting (bodies + stickers)
     this.state = new CubeState(); // logical model kept in lock-step with the 3D turns
     this._stickerByHome = new Map(); // "face:x,y,z" -> sticker mesh (for edit mode)
-    this._highlight = [];   // materials whose emissive we boosted, for restore
+    this._colorSave = [];   // {mat, hex} of stickers dimmed by the solve highlight, for restore
     this._queue = [];
     this._running = false;
     this.turnDuration = 240; // ms per quarter turn
@@ -182,29 +190,28 @@ export class RubiksCube {
     if (f) f.c = letter;
   }
 
-  /** Glow the stickers of one layer (or the whole cube if layer===null). */
-  setHighlight(axisKey, layer) {
-    this.clearHighlight();
+  /**
+   * Solve highlight ("variant C"): keep the moving layer's stickers vivid and mute
+   * every other layer, so the layer you must turn pops without losing any hue.
+   * Saves each sticker's true colour first so clearSolveHighlight restores it exactly.
+   */
+  setSolveHighlight(axisKey, layer) {
+    this.clearSolveHighlight();
     for (const c of this.cubies) {
-      if (layer !== null && Math.round(c.position[axisKey] / UNIT) !== layer) continue;
+      const active = layer === null || Math.round(c.position[axisKey] / UNIT) === layer;
       for (const child of c.children) {
         if (!child.userData.isSticker) continue;
         const mat = child.material;
-        this._highlight.push({ mat, hex: mat.emissive.getHex(), i: mat.emissiveIntensity });
-        mat.emissive.copy(mat.color); // glow in the sticker's OWN colour so the hue stays legible
-        mat.emissiveIntensity = 0.35;
+        this._colorSave.push({ mat, hex: mat.color.getHex() });
+        if (active) hslMul(mat.color, 1.16, 1.12); // moving layer: richer + brighter
+        else hslMul(mat.color, 0.62, 0.66);        // the rest: gently dimmed, still coloured (not gloomy)
       }
     }
   }
 
-  /** Drive the highlighted layer's glow intensity (called each frame for a breathing pulse). */
-  pulseHighlight(intensity) {
-    for (const h of this._highlight) h.mat.emissiveIntensity = intensity;
-  }
-
-  clearHighlight() {
-    for (const h of this._highlight) { h.mat.emissive.setHex(h.hex); h.mat.emissiveIntensity = h.i; }
-    this._highlight.length = 0;
+  clearSolveHighlight() {
+    for (const s of this._colorSave) s.mat.color.setHex(s.hex);
+    this._colorSave.length = 0;
   }
 
   dispose() {
@@ -272,6 +279,7 @@ export class RubiksCube {
 
   _animate(pivot, axisKey, target, duration) {
     return new Promise(resolve => {
+      if (duration <= 0) { pivot.rotation[axisKey] = target; resolve(); return; } // instant turn
       let start = null;
       const step = ts => {
         if (start === null) start = ts;
