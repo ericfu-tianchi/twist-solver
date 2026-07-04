@@ -81,25 +81,23 @@ clobbers the on-screen cube.
 - All work is **squash-merged to `main`**, working tree clean (author = **personal**
   `ericfu-tianchi` / `ericfu-tianchi@outlook.com` — NOT the OpusFu company account). Throwaway
   arrow/strip/dock lab files were pruned; the stale `ericf-0704--ui-revamp` branch is deleted.
-- **Two personal remotes** (both Eric's own accounts, never Opus):
-  - `origin` → GitHub `https://github.com/ericfu-tianchi/twist-solver` (from the first session).
-  - `gitlab` → GitLab `https://gitlab.com/<user>/twist-solver` (added 2026-07-04; **personal GitLab**
-    is now the primary home). GitLab auth is per-machine via `glab auth login`.
+- **One personal remote** (Eric's own account, never Opus): `origin` → GitHub
+  `https://github.com/ericfu-tianchi/twist-solver`. (GitLab was briefly mentioned then retracted —
+  **GitHub is the only home**.)
 - gh active account = `ericfu-tianchi` (switch back with `gh auth switch --user OpusFu` if needed).
-- Org rules: no direct push to master; **squash merge**; PR/MR needs an **"AI coding brief"** section
+- Org rules: no direct push to master; **squash merge**; PR needs an **"AI coding brief"** section
   (Original request / Manual interventions / Retro). Branch name `{first}{lastinitial}-{mm}{dd}--{feature}`.
 
 ## ▶ NEXT STEP — DEPLOY (the last step)
 Goal: one static webpage that opens on desktop **and** mobile, free & shareable. Zero-build, so any
 static host works with **no code changes** (relative paths already work on a repo subpath).
-- **Easiest + fastest (recommended): Cloudflare Pages** — connect the GitLab repo, **no build command**,
-  output dir = `/` (root). Free, global CDN, auto-deploy on push, free custom domain + HTTPS.
-- **Native to GitLab: GitLab Pages** — needs a tiny `.gitlab-ci.yml` (job that copies the repo into
-  `public/`). URL `https://<user>.gitlab.io/twist-solver/`. Free, but CI-file overhead.
-- **Also fine (connect GitLab repo, zero config): Netlify · Vercel** — both free, auto-deploy, custom domain.
+- **Recommended: GitHub Pages** — already on his GitHub, nothing to configure but a toggle. Repo must
+  be **public** (it is) → GitHub → repo → Settings → Pages → "Deploy from a branch" → `main` / `/ (root)`
+  → Save. URLs: Desktop `https://ericfu-tianchi.github.io/twist-solver/` · Mobile `…/mobile.html`.
+- Alternatives (all free, connect the GitHub repo, **no build command**, output dir = `/`, auto-deploy
+  on push, free custom domain): **Cloudflare Pages** (fastest CDN) · **Netlify** · **Vercel**.
 - Optional polish (any host): a tiny UA/width redirect so small screens land on `mobile.html`; and/or
   vendor three.js + cubejs locally so a CDN hiccup can't break the page.
-- URLs are the same shape everywhere: Desktop `…/` · Mobile `…/mobile.html`.
 
 ## Working style with Eric
 Concise; hands-on; **iterates hard on visuals** → show options as throwaway mock HTML + screenshots,
