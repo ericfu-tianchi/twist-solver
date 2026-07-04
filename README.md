@@ -6,7 +6,7 @@ Twist Solver takes any scrambled cube and walks you through fixing it, one quart
 time. On-screen arrows show exactly what to twist next — no notation, no algorithms, nothing to
 memorize. Just follow along.
 
-> 🔗 Live demo: _coming soon_ (to be deployed as a single web page — opens on desktop and mobile).
+> 🔗 **Live demo: [twist-solver.pages.dev](https://twist-solver.pages.dev)** — one link, opens on desktop and mobile (phones automatically get the mobile layout).
 
 ## Features
 
