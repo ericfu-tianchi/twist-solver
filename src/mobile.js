@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RubiksCube, parseMove, COLORS, FACE_NORMAL } from './cube.js';
 import { CubeState, cubeError } from './state.js';
 import { buildMotionArrows } from './solveVisuals.js';
+import { MOBILE_FACELET_POS as FACELET_POS, NET_ORDER } from './netLayout.js';
 
 const $ = id => document.getElementById(id);
 const wrap = $('scene');
@@ -476,16 +477,7 @@ function recenter() {
 // Same model + validation as desktop: a 6-face net → a throwaway CubeState that's
 // checked by cubeError + a trial LBL solve (catches a lone flipped edge) BEFORE it
 // ever replaces the on-screen cube. Only the net's visual layout is mobile-tuned.
-const rows = (rowVals, colVals, mk) => { const a = []; for (const r of rowVals) for (const c of colVals) a.push(mk(r, c)); return a; };
-const FACELET_POS = {
-  U: rows([-1, 0, 1], [-1, 0, 1], (z, x) => [x, 1, z]),
-  F: rows([1, 0, -1], [-1, 0, 1], (y, x) => [x, y, 1]),
-  R: rows([1, 0, -1], [1, 0, -1], (y, z) => [1, y, z]),
-  L: rows([1, 0, -1], [-1, 0, 1], (y, z) => [-1, y, z]),
-  B: rows([1, 0, -1], [1, 0, -1], (y, x) => [x, y, -1]),
-  D: rows([1, 0, -1], [-1, 0, 1], (z, x) => [x, -1, z]),
-};
-const NET_ORDER = ['U', 'L', 'F', 'R', 'B', 'D'];
+// The net→cubie maps live in ./netLayout.js (shared with test/mobileEditor.test.mjs).
 const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 
 const editSheet = $('editSheet'), cubeNet = $('cubeNet'), palette = $('palette'), editMsg = $('editMsg');
