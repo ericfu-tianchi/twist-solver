@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { RubiksCube, UNIT, parseMove, COLORS } from './cube.js';
+import { RubiksCube, UNIT, parseMove, COLORS, FACE_NORMAL } from './cube.js';
+import { CubeState, cubeError } from './state.js';
+import { buildMotionArrows } from './solveVisuals.js';
 // solver.js is imported lazily (see ensureSolver) so the cube + editor still
 // work even while the solver module is being finalised.
 
@@ -25,36 +27,61 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 const camera = new THREE.PerspectiveCamera(38, W() / H(), 0.1, 100);
 
-// --- camera control: seamless arcball rotate (free mode) + wheel dolly --------
+// --- camera control: seamless arcball rotate (free mode); wheel/pinch = zoom -----
 // Standard "hero" orientation: front(green) toward you, white on top, red on the
 // right — the conventional way a cube is depicted (F + U + R all visible).
 const TARGET = new THREE.Vector3(0, 0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
-// FRONT_VIEW: dead-on the front (green) face — the "正对" / recenter / default view.
+// FRONT_VIEW: dead-on the front (green) face — the recenter / default view.
 // SOLVE_VIEW: a fixed 3/4 (green front, white top, red right) that stays LOCKED for
-// the whole guided solve, so every arrow (even a Back turn) reads without moving.
-const FRONT_VIEW = new THREE.Vector3(0, 0, 8);
-const SOLVE_VIEW = new THREE.Vector3(4.6, 3.7, 6.4);
-const SOLVE_LIFT = 1.35; // raise the cube during solve so bottom arrows clear the panel
-const MIN_DIST = 5;
-const MAX_DIST = 18;
+// the whole guided solve, so every arrow reads without moving. The ONE exception is a
+// Back (B) turn: the back slice's side stickers barely show from the front 3/4, so B
+// steps nudge to SOLVE_VIEW_B (a touch higher + more right) to reveal their arrows.
+// distances are pulled back a bit so the cube sits with breathing room inside the stage
+// cell; arrow correctness depends only on the view DIRECTION, so this leaves them intact.
+const FRONT_VIEW = new THREE.Vector3(0, 0, 10);
+const SOLVE_VIEW = new THREE.Vector3(5.75, 4.62, 8.0);
+const SOLVE_VIEW_B = new THREE.Vector3(6.75, 6.5, 6.75);
+const solveViewFor = token => (token && token[0] === 'B' ? SOLVE_VIEW_B : SOLVE_VIEW);
 camera.position.copy(FRONT_VIEW);
 camera.lookAt(TARGET);
 
-function dolly(factor) {
-  const off = camera.position.clone().sub(TARGET);
-  off.setLength(Math.max(MIN_DIST, Math.min(MAX_DIST, off.length() * factor)));
-  camera.position.copy(TARGET).add(off);
+// Free-look = TURNTABLE + INERTIA (chosen in drag-lab): yaw around world-Y, pitch around
+// world-X (clamped, so "up" always stays up — no roll, which makes a target angle easy to
+// hit), plus a flick-to-spin that glides to a stop. Camera orbits on a sphere around TARGET.
+let sphR = FRONT_VIEW.length(), sphTheta = 0, sphPhi = Math.PI / 2;
+let spinVTheta = 0, spinVPhi = 0, spinning = false;
+const PHI_MIN = 0.12, PHI_MAX = Math.PI - 0.12;
+function syncSpherical() {
+  const p = camera.position.clone().sub(TARGET);
+  sphR = p.length();
+  sphTheta = Math.atan2(p.x, p.z);
+  sphPhi = Math.acos(Math.max(-1, Math.min(1, p.y / sphR)));
+}
+function applySpherical() {
+  const s = Math.sin(sphPhi);
+  camera.position.set(
+    TARGET.x + sphR * s * Math.sin(sphTheta),
+    TARGET.y + sphR * Math.cos(sphPhi),
+    TARGET.z + sphR * s * Math.cos(sphTheta),
+  );
+  camera.up.copy(UP);
   camera.lookAt(TARGET);
 }
 function orbitDrag(dx, dy) {
-  const off = camera.position.clone().sub(TARGET);
-  off.applyAxisAngle(UP, -dx * 0.008);                    // yaw around world up
-  const right = new THREE.Vector3().crossVectors(camera.up, off).normalize();
-  off.applyAxisAngle(right, -dy * 0.008);                 // pitch around camera-right (seamless over the poles)
-  camera.up.applyAxisAngle(right, -dy * 0.008);
-  camera.position.copy(TARGET).add(off);
-  camera.lookAt(TARGET);
+  sphTheta -= dx * 0.008;
+  sphPhi = Math.max(PHI_MIN, Math.min(PHI_MAX, sphPhi - dy * 0.008));
+  applySpherical();
+  spinVTheta = -dx * 0.008;
+  spinVPhi = -dy * 0.008;
+}
+function stepInertia() {
+  if (!spinning) return;
+  sphTheta += spinVTheta;
+  sphPhi = Math.max(PHI_MIN, Math.min(PHI_MAX, sphPhi + spinVPhi));
+  applySpherical();
+  spinVTheta *= 0.94; spinVPhi *= 0.94;
+  if (Math.abs(spinVTheta) < 0.0008 && Math.abs(spinVPhi) < 0.0008) spinning = false;
 }
 
 // --- lighting ---------------------------------------------------------------
@@ -62,17 +89,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x6b6b78, 1.0)); // lighter ground
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 const key = new THREE.DirectionalLight(0xffffff, 2.0);
-key.position.set(6, 10, 7);
-key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.near = 1;
-key.shadow.camera.far = 40;
-key.shadow.camera.left = -6;
-key.shadow.camera.right = 6;
-key.shadow.camera.top = 6;
-key.shadow.camera.bottom = -6;
-key.shadow.bias = -0.0004;
-key.shadow.radius = 6;
+key.position.set(6, 10, 7); // lights the cube; shadow is a separate centred contact blob (below)
 scene.add(key);
 
 const fill = new THREE.DirectionalLight(0xbcd0ff, 0.8);
@@ -83,15 +100,34 @@ const under = new THREE.DirectionalLight(0xffffff, 0.55); // lifts shadowed / un
 under.position.set(-3, -6, -5);
 scene.add(under);
 
-// soft contact shadow on the floor
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(60, 60),
-  new THREE.ShadowMaterial({ opacity: 0.3 }),
+// --- soft contact shadow ----------------------------------------------------
+// A radial-gradient blob that sits directly under the cube centre, so it stays put
+// (a real projected shadow drifted to the side under the angled key light).
+function shadowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(20,24,32,0.34)');
+  grad.addColorStop(0.55, 'rgba(20,24,32,0.16)');
+  grad.addColorStop(1, 'rgba(20,24,32,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const contactShadow = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, toneMapped: false }),
 );
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -2.45;
-ground.receiveShadow = true;
-scene.add(ground);
+contactShadow.rotation.x = -Math.PI / 2;
+scene.add(contactShadow);
+// keep it under the cube, scaled to the current cube size
+function updateContactShadow() {
+  const s = 4.6 * cubeScale;
+  contactShadow.scale.set(s, s, 1);
+  contactShadow.position.y = -1.62 * cubeScale;
+}
+renderer.shadowMap.enabled = false; // using the contact blob instead of projected shadows
 
 // --- cube -------------------------------------------------------------------
 let cubeScale = 0.8; // driven by the size slider
@@ -100,11 +136,12 @@ cube.group.scale.setScalar(cubeScale);
 scene.add(cube.group);
 
 // --- resize + render loop ---------------------------------------------------
-addEventListener('resize', () => {
+function onResize() {
   camera.aspect = W() / H();
   camera.updateProjectionMatrix();
   renderer.setSize(W(), H());
-});
+}
+addEventListener('resize', onResize);
 
 // render loop is started at the very end of the file, once the solve/tween
 // state flags it reads (camMoving/homing/solving) have been declared.
@@ -116,19 +153,38 @@ let editing = false; // editor modal open
 const freeToggle = document.getElementById('freeToggle');
 function setFree(on) {
   freeMode = on;
+  if (!on) spinning = false; // leaving free-look stops any flick
   freeToggle.classList.toggle('on', on);
   freeToggle.setAttribute('aria-pressed', String(on));
   renderer.domElement.style.cursor = on ? 'grab' : ''; // hand cursor signals Free mode
 }
 freeToggle.addEventListener('click', () => setFree(!freeMode));
 
+// Space = momentary Free-look: hold to orbit, release to return. We ignore the OS
+// key-repeat (e.repeat) so it stays steadily ON while held — the button keeps its
+// green active state and the cursor stays a grab-hand (no flicker). Releasing (or
+// losing focus) turns it back off, but only if Space is what enabled it.
+let spaceFreeActive = false;
+function spaceFreeDown() { if (freeMode) return; spaceFreeActive = true; setFree(true); }
+function spaceFreeUp() { if (!spaceFreeActive) return; spaceFreeActive = false; setFree(false); }
+addEventListener('keyup', e => { if (e.key === ' ') spaceFreeUp(); });
+addEventListener('blur', spaceFreeUp);
+
 // --- recenter: glide the camera back to the standard hero view --------------
 let homing = false;
+// Glide back to the hero view ON THE VIEW SPHERE — slerp the direction + lerp the radius.
+// (A naive position lerpVectors cuts a chord through the sphere, so the cube would dip
+// closer — zoom in — then back out mid-glide. This keeps the distance monotonic.)
 function homeView() {
-  if (homing) return;
+  if (homing || camMoving) return;
   homing = true;
-  const p0 = camera.position.clone();
+  spinning = false;
+  const d0 = camera.position.clone().normalize();
+  const d1 = FRONT_VIEW.clone().normalize();
+  const r0 = camera.position.length(), r1 = FRONT_VIEW.length();
   const up0 = camera.up.clone();
+  const full = new THREE.Quaternion().setFromUnitVectors(d0, d1);
+  const idq = new THREE.Quaternion();
   const dur = 520;
   let start = null;
   const ease = t => 1 - Math.pow(1 - t, 3);
@@ -136,7 +192,8 @@ function homeView() {
     if (start === null) start = ts;
     const t = Math.min(1, (ts - start) / dur);
     const k = ease(t);
-    camera.position.lerpVectors(p0, FRONT_VIEW, k);
+    const q = new THREE.Quaternion().slerpQuaternions(idq, full, k);
+    camera.position.copy(d0.clone().applyQuaternion(q).multiplyScalar(r0 + (r1 - r0) * k));
     camera.up.lerpVectors(up0, UP, k).normalize();
     camera.lookAt(TARGET);
     if (t < 1) requestAnimationFrame(step);
@@ -148,15 +205,16 @@ document.getElementById('recenter').addEventListener('click', homeView);
 
 // --- button + keyboard wiring ----------------------------------------------
 document.querySelectorAll('[data-face]').forEach(btn => {
-  btn.addEventListener('click', e => cube.move(btn.dataset.face + (e.shiftKey ? "'" : '')));
-  btn.addEventListener('contextmenu', e => { e.preventDefault(); cube.move(btn.dataset.face + "'"); });
+  btn.addEventListener('click', e => cube.move(btn.dataset.face + (e.shiftKey ? "'" : '')).then(refreshStatus));
+  btn.addEventListener('contextmenu', e => { e.preventDefault(); cube.move(btn.dataset.face + "'").then(refreshStatus); });
 });
 document.querySelectorAll('[data-move]').forEach(btn => {
-  btn.addEventListener('click', () => cube.move(btn.dataset.move));
+  btn.addEventListener('click', () => cube.move(btn.dataset.move)); // whole-cube reorient — no status change
 });
 // --- scramble as a start/stop toggle (you control how scrambled it gets) -----
 let scrambleTimer = null;
 const scrambleBtn = document.getElementById('scramble');
+const scrambleTip = document.getElementById('scrambleTip');
 const SCRAMBLE_FACES = ['U', 'D', 'L', 'R', 'F', 'B'];
 const SCRAMBLE_MODS = ['', "'", '2'];
 let scrambleLast = '';
@@ -164,14 +222,15 @@ function stopScramble() {
   if (!scrambleTimer) return;
   clearInterval(scrambleTimer);
   scrambleTimer = null;
-  scrambleBtn.textContent = '打乱 Scramble';
-  scrambleBtn.classList.remove('on');
+  scrambleBtn.classList.remove('active');
+  scrambleTip.textContent = 'Scramble';
+  refreshStatus();
 }
 function toggleScramble() {
   if (scrambleTimer) { stopScramble(); return; }
   if (solving || editing) return;
-  scrambleBtn.textContent = '停止 Stop';
-  scrambleBtn.classList.add('on');
+  scrambleBtn.classList.add('active');
+  scrambleTip.textContent = 'Stop';
   scrambleTimer = setInterval(() => {
     if (cube.isBusy()) return;
     let f;
@@ -188,10 +247,14 @@ document.getElementById('reset').addEventListener('click', () => {
   cube = new RubiksCube();
   cube.group.scale.setScalar(cubeScale);
   scene.add(cube.group);
+  refreshStatus();
 });
 
 addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // typing in a field (e.g. the zoom input) owns its own keys — Enter there just
+  // confirms the value; it must NOT also trigger the solve "next step".
+  if (e.target instanceof HTMLInputElement) return;
   if (editing) { if (e.key === 'Escape') closeEditor(); return; }
   if (solving) {
     if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextStep(); }
@@ -203,7 +266,7 @@ addEventListener('keydown', e => {
   if (/^[udlrfb]$/i.test(k)) cube.move(k.toUpperCase() + (e.shiftKey ? "'" : ''));
   else if (/^[xyz]$/i.test(k)) cube.move(k.toLowerCase() + (e.shiftKey ? "'" : ''));
   else if (k === 'c' || k === 'C') homeView();
-  else if (k === ' ') { e.preventDefault(); setFree(!freeMode); }
+  else if (k === ' ') { e.preventDefault(); if (!e.repeat) spaceFreeDown(); }
 });
 
 // --- drag-to-turn -----------------------------------------------------------
@@ -236,6 +299,8 @@ function roundToAxis(v) {
 renderer.domElement.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   if (freeMode) {
+    spinning = false;      // grab cancels any in-flight flick
+    syncSpherical();       // capture the current view into turntable coords
     orbiting = { x: e.clientX, y: e.clientY };
     renderer.domElement.style.cursor = 'grabbing'; // closed fist while dragging
     renderer.domElement.setPointerCapture(e.pointerId);
@@ -295,6 +360,8 @@ renderer.domElement.addEventListener('pointermove', e => {
 
 ['pointerup', 'pointercancel'].forEach(ev =>
   renderer.domElement.addEventListener(ev, e => {
+    // a flick at release keeps the turntable spinning, then it glides to a stop
+    if (orbiting && (Math.abs(spinVTheta) > 0.002 || Math.abs(spinVPhi) > 0.002)) spinning = true;
     drag = null;
     orbiting = null;
     if (freeMode) renderer.domElement.style.cursor = 'grab'; // back to open hand
@@ -302,30 +369,45 @@ renderer.domElement.addEventListener('pointermove', e => {
   }),
 );
 
-// wheel to zoom (works in every mode)
-renderer.domElement.addEventListener('wheel', e => {
-  e.preventDefault();
-  dolly(e.deltaY > 0 ? 1.08 : 0.926);
-}, { passive: false });
 
 // ===========================================================================
 // Phase 2 — guided solve + cube editor
 // ===========================================================================
 
 // DOM refs
-const dock = document.querySelector('.dock');
-const solvePanel = document.getElementById('solvePanel');
-const solvePhase = document.getElementById('solvePhase');
-const solveMove = document.getElementById('solveMove');
-const solveHint = document.getElementById('solveHint');
-const solveCounter = document.getElementById('solveCounter');
-const solveBar = document.getElementById('solveBar');
+const app = document.getElementById('app');
+const inspIdle = document.getElementById('inspIdle');
+const inspSolve = document.getElementById('inspSolve');
+const timelineEl = document.getElementById('timeline');
+const solutionSteps = document.getElementById('solutionSteps');
+const progStep = document.getElementById('progStep');
+const progPct = document.getElementById('progPct');
+const progBar = document.getElementById('progBar');
+const tlStrip = document.getElementById('tlStrip');
+const tlCounter = document.getElementById('tlCounter');
 const solvePrev = document.getElementById('solvePrev');
 const solveAuto = document.getElementById('solveAuto');
+const moveBadge = document.getElementById('moveBadge');
+const badgeGlyph = document.getElementById('badgeGlyph');
+const badgeLabel = document.getElementById('badgeLabel');
+const stateSolver = document.getElementById('stateSolver');
+const stateText = document.getElementById('stateText');
+const statePill = document.getElementById('statePill');
+const methodLabel = document.getElementById('methodLabel');
 const editModal = document.getElementById('editModal');
 const cubeNet = document.getElementById('cubeNet');
 const palette = document.getElementById('palette');
 const editMsg = document.getElementById('editMsg');
+
+// Reflect the cube's state (solved / scrambled) in the top pill + meta line.
+// While solving, the pill shows solve progress instead, so we skip.
+function refreshStatus() {
+  if (solving) return;
+  const solved = cube.getState().isSolved();
+  stateText.textContent = solved ? 'Solved' : 'Scrambled';
+  statePill.classList.toggle('scrambled', !solved);
+  statePill.classList.remove('solving');
+}
 
 // Net layout: for each face, the 9 home cubie positions in display (row-major) order.
 const rows = (rowVals, colVals, mk) => {
@@ -344,118 +426,35 @@ const FACELET_POS = {
 const NET_ORDER = ['U', 'L', 'F', 'R', 'B', 'D'];
 const hex = letter => '#' + COLORS[letter].toString(16).padStart(6, '0');
 
-// --- directional arrow ------------------------------------------------------
-const ARROW_MAT = new THREE.MeshStandardMaterial({
-  color: 0xfff1c2, emissive: 0xff9d10, emissiveIntensity: 0.95,
-  roughness: 0.28, metalness: 0.0, toneMapped: false,
-  depthTest: false, depthWrite: false, // always on top so a Back arrow is never occluded
-});
-// bright frame around the turning face — marks WHICH face without touching any sticker colour
-const FRAME_MAT = new THREE.MeshStandardMaterial({
-  color: 0xffe08a, emissive: 0xffb020, emissiveIntensity: 1.0,
-  roughness: 0.3, metalness: 0.0, toneMapped: false,
-  depthTest: false, depthWrite: false,
-});
+// --- directional guidance: variant-C highlight + per-sticker motion arrows ---
+// The turning layer stays vivid while the rest is muted (cube.setSolveHighlight),
+// and a solid black arrow sits on each camera-facing side sticker pointing the way
+// it travels (buildMotionArrows). Camera is locked at SOLVE_VIEW during the solve,
+// so these read the same on every step. See src/solveVisuals.js.
 let arrowObj = null;
 let camMoving = false;
 
 function clearArrow() {
+  cube.clearSolveHighlight(); // restore the muted stickers to their true colours
   if (arrowObj) {
-    cube.group.remove(arrowObj);
-    arrowObj.traverse(o => o.geometry?.dispose?.());
+    cube.group.remove(arrowObj); // geometry + material are shared singletons — don't dispose
     arrowObj = null;
   }
-}
-
-// breathing glow on the arrow + face frame (colours of the cube are untouched)
-function animateArrow() {
-  if (!arrowObj) return;
-  const b = 0.5 + 0.5 * Math.sin(performance.now() / 360);
-  ARROW_MAT.emissiveIntensity = 0.7 + 0.4 * b;
-  FRAME_MAT.emissiveIntensity = 0.7 + 0.6 * b;
-  requestAnimationFrame(animateArrow);
 }
 
 function showArrow(token) {
   clearArrow();
   const info = parseMove(token);
   if (!info || info.whole) return;
-  arrowObj = new THREE.Group();
-  arrowObj.add(buildFaceFrame(info.axisKey, info.layer));       // which face
-  arrowObj.add(buildArc(info.axisKey, info.layer, info.sign));  // which direction
-  cube.group.add(arrowObj); // child of the cube so it scales with the size slider
-  animateArrow();
-}
-
-function faceBasis(axisKey) {
-  const a = new THREE.Vector3(axisKey === 'x' ? 1 : 0, axisKey === 'y' ? 1 : 0, axisKey === 'z' ? 1 : 0);
-  const helper = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-  const u = new THREE.Vector3().crossVectors(helper, a).normalize();
-  const v = new THREE.Vector3().crossVectors(a, u).normalize();
-  return { a, u, v };
-}
-
-// a curved arrow placed on the part of the layer that faces the (locked) camera,
-// so the turn direction reads at a glance
-function buildArc(axisKey, layer, sign) {
-  const g = new THREE.Group();
-  const { a, u, v } = faceBasis(axisKey);
-  const R = 1.75;
-  const offset = layer * 1.55;
-  // angle that faces the camera, so the arc sits on the visible side of the layer
-  const faceCenterW = a.clone().multiplyScalar(offset * cubeScale).add(cube.group.position);
-  const camDir = camera.position.clone().sub(faceCenterW);
-  const thCam = Math.atan2(camDir.dot(v), camDir.dot(u));
-  const dir = sign >= 0 ? 1 : -1;
-  const span = 2.0; // ~115°
-  const th0 = thCam - dir * span / 2;
-  const th1 = thCam + dir * span / 2;
-  const P = th => a.clone().multiplyScalar(offset)
-    .addScaledVector(u, R * Math.cos(th))
-    .addScaledVector(v, R * Math.sin(th));
-  const pts = [];
-  for (let i = 0; i <= 40; i++) pts.push(P(th0 + (th1 - th0) * (i / 40)));
-  const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.085, 14, false), ARROW_MAT,
-  );
-  tube.renderOrder = 1000;
-  g.add(tube);
-  const tip = P(th1);
-  const tangent = new THREE.Vector3()
-    .addScaledVector(u, -Math.sin(th1))
-    .addScaledVector(v, Math.cos(th1))
-    .multiplyScalar(dir).normalize();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.62, 24), ARROW_MAT);
-  head.position.copy(tip);
-  head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-  head.renderOrder = 1000;
-  g.add(head);
-  return g;
-}
-
-// glowing square frame hugging the outer face of the turning layer
-function buildFaceFrame(axisKey, layer) {
-  const g = new THREE.Group();
-  const { a, u, v } = faceBasis(axisKey);
-  const S = 1.52;
-  const off = layer * 1.58;
-  const corner = (su, sv) => a.clone().multiplyScalar(off).addScaledVector(u, su * S).addScaledVector(v, sv * S);
-  const cs = [corner(1, 1), corner(-1, 1), corner(-1, -1), corner(1, -1)];
-  for (let i = 0; i < 4; i++) {
-    const p1 = cs[i], p2 = cs[(i + 1) % 4];
-    const d = p2.clone().sub(p1);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, d.length() + 0.11), FRAME_MAT);
-    bar.position.copy(p1).add(p2).multiplyScalar(0.5);
-    bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.normalize());
-    bar.renderOrder = 1000;
-    g.add(bar);
-  }
-  return g;
+  cube.setSolveHighlight(info.axisKey, info.layer);
+  arrowObj = buildMotionArrows(cube, info.axisKey, info.layer, info.sign);
+  cube.group.add(arrowObj); // child of the cube so it scales with it
 }
 
 function orbitCameraTo(target, dur = 620) {
   return new Promise(resolve => {
     camMoving = true;
+    spinning = false;
     const d0 = camera.position.clone().normalize();
     const d1 = target.clone().normalize();
     const r0 = camera.position.length();
@@ -480,33 +479,39 @@ function orbitCameraTo(target, dur = 620) {
   });
 }
 
-// raise/lower the whole cube (used during solve so bottom arrows clear the panel)
-function liftCube(to, dur = 520) {
-  const from = cube.group.position.y;
-  const ease = t => 1 - Math.pow(1 - t, 3);
-  let start = null;
-  const step = ts => {
-    if (start === null) start = ts;
-    const t = Math.min(1, (ts - start) / dur);
-    cube.group.position.y = from + (to - from) * ease(t);
-    if (t < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
-// --- human-readable hint for a move ----------------------------------------
-const FACE_CN = {
-  U: '顶层 (上面)', D: '底层 (下面)', L: '左面', R: '右面', F: '前面', B: '后面 (背面)',
-  x: '整个魔方 (绕左右轴)', y: '整个魔方 (绕上下轴)', z: '整个魔方 (绕前后轴)',
+// --- human-readable hint + notation helpers --------------------------------
+const FACE_EN = {
+  U: 'Up face', D: 'Down face', L: 'Left face', R: 'Right face', F: 'Front face', B: 'Back face',
+  x: 'Whole cube', y: 'Whole cube', z: 'Whole cube',
 };
 function hintFor(token) {
   const m = /^([UDLRFBxyz])(['2]?)$/.exec(token);
   if (!m) return '';
   const [, sym, mod] = m;
-  const name = FACE_CN[sym] || sym;
-  if (mod === '2') return `${name}　转 180°`;
-  return `${name}　${mod === "'" ? '逆时针' : '顺时针'} 90°`;
+  const name = FACE_EN[sym] || sym;
+  if (mod === '2') return `${name} · half turn`;
+  return `${name} · ${mod === "'" ? 'counter-clockwise' : 'clockwise'}`;
 }
+function hintLabel(token) {
+  const m = /^([UDLRFBxyz])(['2]?)$/.exec(token);
+  if (!m) return '';
+  const [, sym, mod] = m;
+  const dir = mod === '2' ? 'half turn' : (mod === "'" ? 'counter-clockwise' : 'clockwise');
+  return `<b>${FACE_EN[sym] || sym}</b> · ${dir}`;
+}
+// notation token with the ' and 2 styled
+function tokHTML(m) {
+  const base = m[0], mod = m.slice(1);
+  if (mod === "'") return `${base}<span class="prime">'</span>`;
+  if (mod === '2') return `${base}<span class="two">2</span>`;
+  return base;
+}
+// matched mirror pair (symmetric about the vertical axis) so the arrow column
+// right-aligns into a straight line regardless of CW vs CCW.
+const CW_ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`;
+const CCW_ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+const arrowHTML = m => (m.includes("'") ? CCW_ARROW : CW_ARROW);
+const FACE_VAR = { U: '--w', D: '--y', L: '--o', R: '--r', F: '--g', B: '--b' };
 
 // --- orientation normaliser (bring white to top, green to front) -----------
 function orientMoves(state) {
@@ -548,8 +553,99 @@ async function ensureSolver(mode) {
   return solveFns[mode];
 }
 
-async function startSolve() {
+// group a flat step list into consecutive same-phase runs
+function phaseGroups(flat) {
+  const groups = [];
+  flat.forEach(s => {
+    if (!groups.length || groups[groups.length - 1].name !== s.phase) groups.push({ name: s.phase, moves: [] });
+    groups[groups.length - 1].moves.push(s);
+  });
+  return groups;
+}
+
+// build the inspector's phase-grouped solution list; each .step carries its flat index
+function buildSolutionList(flat) {
+  let html = '', i = 0;
+  phaseGroups(flat).forEach((g, gi) => {
+    html += `<div class="phase"><span class="idx">P${gi + 1}</span><span class="name">${g.name}</span>`
+      + `<span class="line"></span><span class="ct">${g.moves.length}</span></div>`;
+    g.moves.forEach(s => {
+      const fc = FACE_VAR[s.token[0]] || '--muted';
+      html += `<div class="step" data-i="${i}">`
+        + `<span class="num">${String(i + 1).padStart(2, '0')}</span>`
+        + `<span class="facechip" style="background:var(${fc})"></span>`
+        + `<span class="token">${tokHTML(s.token)}</span>`
+        + `<span class="desc">${hintFor(s.token)}</span>`
+        + `<span class="arrow">${arrowHTML(s.token)}</span></div>`;
+      i++;
+    });
+  });
+  solutionSteps.innerHTML = html;
+}
+
+// compact, unambiguous phase labels for the timeline dividers (the inspector keeps the
+// full names). Scheme B: layer + part — distinguishes bottom-vs-top cross/corners.
+const PHASE_SHORT = {
+  'Bottom cross': 'Btm cross', 'Bottom corners': 'Btm corners', 'Middle edges': 'Mid edges',
+  'Top cross': 'Top cross', 'Top face': 'Top face', 'Corner positions': 'LL corners', 'Edge positions': 'LL edges',
+};
+const phaseLabel = name => PHASE_SHORT[name] || name;
+
+// build the move strip as grouped phase columns (label + its chips). A single-phase
+// solve (Shortest) renders compact with no labels; multi-phase (Beginner) shows them.
+function buildTimeline(flat) {
+  const groups = phaseGroups(flat);
+  const solo = groups.length <= 1;
+  let html = '', i = 0;
+  groups.forEach(g => {
+    html += '<div class="grp">';
+    if (!solo) html += `<div class="glabel">${phaseLabel(g.name)}</div>`;
+    html += '<div class="gchips">';
+    g.moves.forEach(s => { html += `<span class="chip" data-i="${i}"><span class="box">${tokHTML(s.token)}</span></span>`; i++; });
+    html += '</div></div>';
+  });
+  tlStrip.innerHTML = html;
+  tlStrip.classList.toggle('solo', solo);
+}
+
+// paint current/done state across the list, timeline, progress bars and the move badge
+function updateSolveUI() {
+  const { flat, idx } = session, total = flat.length;
+  solutionSteps.querySelectorAll('.step').forEach(el => {
+    const i = +el.dataset.i;
+    el.classList.toggle('done', i < idx);
+    el.classList.toggle('cur', i === idx);
+  });
+  // keep the current step around the middle of the panel (never pinned to the bottom
+  // edge, which made it always the last visible row) so upcoming steps stay in view
+  const curEl = solutionSteps.querySelector('.step.cur');
+  if (curEl) {
+    const cRect = solutionSteps.getBoundingClientRect();
+    const rRect = curEl.getBoundingClientRect();
+    const delta = (rRect.top - cRect.top) - cRect.height * 0.5 + rRect.height * 0.5;
+    solutionSteps.scrollBy({ top: delta, behavior: 'smooth' });
+  }
+  tlStrip.querySelectorAll('.chip').forEach(el => {
+    const i = +el.dataset.i;
+    el.classList.toggle('done', i < idx);
+    el.classList.toggle('cur', i === idx);
+    el.classList.toggle('up', i > idx);
+  });
+  tlStrip.querySelector('.chip.cur')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  const pct = Math.round((idx / total) * 100);
+  progStep.textContent = `Step ${idx + 1} / ${total}`;
+  progPct.textContent = `${pct}%`;
+  progBar.style.width = `${pct}%`;
+  tlCounter.innerHTML = `Step <b>${idx + 1}</b> / ${total}`;
+  const cur = flat[idx];
+  badgeGlyph.innerHTML = tokHTML(cur.token);
+  badgeLabel.innerHTML = hintLabel(cur.token);
+  moveBadge.hidden = false;
+}
+
+async function startSolve(mode) {
   if (solving || editing || cube.isBusy()) return;
+  if (mode) setMethod(mode); // method chosen from the Solve hover-popover (default stays Shortest)
   stopScramble();
   solving = true;
   if (freeMode) setFree(false);
@@ -557,18 +653,41 @@ async function startSolve() {
   for (const t of orientMoves(cube.getState())) await cube.move(t);
 
   const state = cube.getState();
-  if (state.isSolved()) { solving = false; toast('已经是还原状态啦 🎉'); return; }
+  if (state.isSolved()) { solving = false; toast('Already solved 🎉'); return; }
 
+  // 1) Enter the solve LAYOUT first (stage now at its final size), then glide to the
+  //    locked 3/4 BEFORE planning. The first Kociemba solve builds pruning tables and
+  //    briefly blocks the main thread; gliding first keeps the transition consistently
+  //    smooth instead of stuttering mid-orbit.
+  const enterSolveLayout = () => {
+    inspIdle.hidden = true; inspSolve.hidden = false; timelineEl.hidden = false;
+    app.classList.add('solving');
+    statePill.classList.remove('scrambled'); statePill.classList.add('solving');
+    stateText.textContent = 'Solving';
+    solutionSteps.innerHTML = ''; tlStrip.innerHTML = '';
+    solveAuto.classList.remove('on'); solveAuto.textContent = 'Auto ▶';
+    onResize();
+  };
+  const revertToIdle = () => {
+    solving = false;
+    app.classList.remove('solving');
+    inspSolve.hidden = true; inspIdle.hidden = false; timelineEl.hidden = true;
+    onResize(); homeView(); refreshStatus();
+  };
+  enterSolveLayout();
+  if (solveMode === 'short') toast('Planning the shortest solution…');
+  await ensureSolveView(null); // smooth glide to the solve view at the final stage size
+
+  // 2) Plan (may briefly block the first time — cube is already positioned, so no jump).
   let steps;
   try {
-    if (solveMode === 'short') toast('计算最短路径中…（首次约 1–2 秒）');
-    await new Promise(r => setTimeout(r, 30)); // let the toast paint before init blocks
+    await new Promise(r => setTimeout(r, 20));
     const solve = await ensureSolver(solveMode);
     steps = solve(state).steps;
   } catch (err) {
-    solving = false;
     console.error(err);
-    toast('这个状态无法求解，检查一下颜色输入 😅');
+    revertToIdle();
+    toast("This cube can't be solved — check the colors you entered.");
     return;
   }
 
@@ -582,57 +701,60 @@ async function startSolve() {
       flat.push({ token: mv, phase: st.name });
     }
   }
-  if (!flat.length) { solving = false; toast('已经是还原状态啦 🎉'); return; }
+  if (!flat.length) { revertToIdle(); toast('Already solved 🎉'); return; }
 
+  // 3) Build the lists + reveal the first step's arrows (camera already at the solve view).
   session = { flat, idx: 0, auto: false };
   cube.turnDuration = Math.round(420 / playbackSpeed); // calmer turns to follow along
-  dock.hidden = true;
-  solvePanel.hidden = false;
-  solveAuto.classList.remove('on');
-  solveAuto.textContent = '自动 ▶';
-  liftCube(SOLVE_LIFT); // raise the cube so bottom-face arrows clear the panel
-  await orbitCameraTo(SOLVE_VIEW); // lock to the fixed 3/4 for the whole solve
+  buildSolutionList(flat);
+  buildTimeline(flat);
   await showStep();
 }
 
 async function showStep() {
-  const { flat, idx } = session;
-  const cur = flat[idx];
-  solvePhase.textContent = cur.phase;
-  solveMove.textContent = cur.token;
-  solveHint.textContent = hintFor(cur.token);
-  solveCounter.textContent = `第 ${idx + 1} / ${flat.length} 步`;
-  solveBar.style.width = `${(idx / flat.length) * 100}%`;
-  solvePrev.disabled = idx === 0;
-  showArrow(cur.token); // camera stays locked at SOLVE_VIEW for the whole solve
+  updateSolveUI();
+  const cur = session.flat[session.idx];
+  solvePrev.disabled = session.idx === 0;
+  await ensureSolveView(cur.token); // locked 3/4 (or the B nudge) for THIS move
+  showArrow(cur.token);
 }
 
-// glide back to the locked optimal 3/4 view (used when advancing after free-observe)
-async function ensureSolveView() {
+// glide to the solve view for `token` (locked 3/4, or the B nudge) — also used to
+// snap back after free-observing
+async function ensureSolveView(token) {
   if (freeMode) setFree(false);
   if (camMoving) return;
-  if (camera.position.distanceTo(SOLVE_VIEW) > 0.4 || camera.up.distanceTo(UP) > 0.04) {
-    await orbitCameraTo(SOLVE_VIEW);
+  const target = solveViewFor(token);
+  if (camera.position.distanceTo(target) > 0.4 || camera.up.distanceTo(UP) > 0.04) {
+    await orbitCameraTo(target);
   }
 }
 
 async function nextStep() {
   if (!session || cube.isBusy() || camMoving) return;
-  await ensureSolveView();
   const cur = session.flat[session.idx];
+  await ensureSolveView(cur.token); // be at the right view before this move turns
   clearArrow();
+  moveBadge.hidden = true; // hide the label while the layer turns
   await cube.move(cur.token);
   session.idx++;
-  if (session.idx >= session.flat.length) { solveBar.style.width = '100%'; exitSolve(true); return; }
+  if (session.idx >= session.flat.length) {
+    progStep.textContent = `Step ${session.flat.length} / ${session.flat.length}`;
+    progPct.textContent = '100%';
+    progBar.style.width = '100%';
+    exitSolve(true);
+    return;
+  }
   await showStep();
   if (session.auto) session.autoTimer = setTimeout(nextStep, Math.round(700 / playbackSpeed));
 }
 
 async function prevStep() {
   if (!session || cube.isBusy() || camMoving || session.idx === 0) return;
-  await ensureSolveView();
+  await ensureSolveView(session.flat[session.idx].token); // right view before reversing
   session.idx--;
   clearArrow();
+  moveBadge.hidden = true;
   await cube.move(invertToken(session.flat[session.idx].token));
   await showStep();
 }
@@ -641,7 +763,7 @@ function toggleAuto() {
   if (!session) return;
   session.auto = !session.auto;
   solveAuto.classList.toggle('on', session.auto);
-  solveAuto.textContent = session.auto ? '暂停 ⏸' : '自动 ▶';
+  solveAuto.textContent = session.auto ? 'Pause ⏸' : 'Auto ▶';
   if (session.auto && !cube.isBusy()) nextStep();
 }
 
@@ -651,11 +773,17 @@ function exitSolve(finished) {
   session = null;
   solving = false;
   cube.turnDuration = 240; // snappy again for manual play
-  solvePanel.hidden = true;
-  dock.hidden = false;
-  liftCube(0); // lower the cube back to centre
+  app.classList.remove('solving');
+  inspSolve.hidden = true;
+  inspIdle.hidden = false;
+  timelineEl.hidden = true;
+  moveBadge.hidden = true;
+  solveAuto.classList.remove('on');
+  solveAuto.textContent = 'Auto ▶';
+  onResize(); // the stage cell grew back
   homeView(); // back to the standard front view
-  if (finished) toast('还原完成，恭喜 🎉');
+  refreshStatus();
+  if (finished) toast('Solved — nice work 🎉');
 }
 
 // --- cube editor ------------------------------------------------------------
@@ -723,35 +851,44 @@ function openEditor() {
 function closeEditor() { editing = false; editModal.hidden = true; }
 
 async function applyEditor() {
-  const count = { U: 0, D: 0, F: 0, B: 0, R: 0, L: 0 };
-  for (const f of NET_ORDER) for (const c of netData[f]) count[c]++;
-  const bad = Object.entries(count).filter(([, n]) => n !== 9);
-  if (bad.length) {
-    editMsg.className = 'edit-msg err';
-    editMsg.textContent = '每种颜色必须正好 9 个：' + bad.map(([c, n]) => `${c}=${n}`).join('  ');
+  // Validate a throwaway state built from the entered colours WITHOUT touching the live
+  // cube, so an invalid entry never replaces what's on screen.
+  const test = new CubeState();
+  for (const face of NET_ORDER)
+    for (let idx = 0; idx < 9; idx++) {
+      const pos = FACELET_POS[face][idx], n = FACE_NORMAL[face];
+      const f = test.facelets.find(f =>
+        f.p[0] === pos[0] && f.p[1] === pos[1] && f.p[2] === pos[2] &&
+        f.n[0] === n[0] && f.n[1] === n[1] && f.n[2] === n[2]);
+      if (f) f.c = netData[face][idx];
+    }
+  const showErr = msg => { editMsg.className = 'edit-msg err'; editMsg.textContent = msg; };
+  // counts, valid pieces, all pieces present, corner-twist total, permutation parity
+  const problem = cubeError(test);
+  if (problem) { showErr(`Not a solvable cube — ${problem}.`); return; }
+  // final gate: a lone flipped edge passes every structural check but is still impossible;
+  // attempting the (local, always-terminating) layer solver reliably catches it.
+  try {
+    const lbl = await ensureSolver('basic');
+    lbl(test.clone());
+  } catch {
+    showErr('Not a solvable cube — an edge looks flipped.');
     return;
   }
-  // rebuild the cube at home positions, painted with the entered colours
+
+  // valid — load it onto the on-screen cube
   cube.dispose();
   cube = new RubiksCube();
   cube.group.scale.setScalar(cubeScale);
   scene.add(cube.group);
+  updateContactShadow();
   for (const face of NET_ORDER)
     for (let idx = 0; idx < 9; idx++)
       cube.paint(face, FACELET_POS[face][idx], netData[face][idx]);
-
-  try {
-    const solve = await ensureSolver(solveMode);
-    solve(cube.getState()); // solvability check
-  } catch (err) {
-    editMsg.className = 'edit-msg err';
-    editMsg.textContent = '这个配色拼不出可解的魔方，检查一下是不是记错/贴错了某一块。';
-    console.error(err);
-    return;
-  }
   closeEditor();
   homeView();
-  toast('已载入你的魔方，点「求解」开始跟练 →');
+  refreshStatus();
+  toast('Cube loaded — hit Solve to start →');
 }
 
 // --- toast ------------------------------------------------------------------
@@ -769,13 +906,16 @@ function toast(msg) {
 }
 
 // --- wiring -----------------------------------------------------------------
-document.getElementById('solve').addEventListener('click', startSolve);
+// Solve: clicking the button uses the current method (defaults to Shortest); the
+// hover-popover options solve directly with that method.
+document.getElementById('solve').addEventListener('click', () => startSolve());
 document.getElementById('edit').addEventListener('click', openEditor);
 document.getElementById('solveExit').addEventListener('click', () => exitSolve(false));
 document.getElementById('solveView').addEventListener('click', async () => {
   if (!session || camMoving) return;
-  await ensureSolveView();
-  showArrow(session.flat[session.idx].token);
+  const cur = session.flat[session.idx];
+  await ensureSolveView(cur.token);
+  showArrow(cur.token);
 });
 document.getElementById('solveNext').addEventListener('click', nextStep);
 solvePrev.addEventListener('click', prevStep);
@@ -792,25 +932,66 @@ document.getElementById('editReset').addEventListener('click', () => {
 document.querySelectorAll('[data-speed]').forEach(btn =>
   btn.addEventListener('click', () => setSpeed(parseFloat(btn.dataset.speed))));
 
-// solve method: 最短 (short) / 基础 (basic)
-document.querySelectorAll('[data-mode]').forEach(btn =>
-  btn.addEventListener('click', () => {
-    solveMode = btn.dataset.mode;
-    document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b === btn));
-  }));
+// Holding Shift previews the counter-clockwise (primed) notation on the Turn-a-layer
+// buttons — matching Shift-click (U → U'). Standard cube notation. Sync from the actual
+// modifier state on every key/pointer event (+ clear on blur) so a missed keyup — e.g.
+// releasing Shift after alt-tabbing away — can't leave the prime stuck on.
+const syncShift = e => app.classList.toggle('shifting', !!e.shiftKey);
+addEventListener('keydown', syncShift);
+addEventListener('keyup', syncShift);
+addEventListener('pointerdown', syncShift);
+addEventListener('blur', () => app.classList.remove('shifting'));
 
-// cube size slider (left rail)
-const sizeSlider = document.getElementById('sizeSlider');
-if (sizeSlider) {
-  sizeSlider.value = String(cubeScale);
-  sizeSlider.addEventListener('input', () => {
-    cubeScale = parseFloat(sizeSlider.value);
-    cube.group.scale.setScalar(cubeScale);
-  });
+// solve method — chosen from the Solve hover-popover. Shortest (Kociemba) is default.
+const METHOD_NAME = { short: 'Shortest', basic: 'Beginner' };
+const ENGINE_LABEL = { short: 'Kociemba two-phase', basic: 'Layer-by-layer' };
+function setMethod(mode) {
+  solveMode = mode;
+  // solver readout shown next to the top-bar "Solving" pill (only visible mid-solve)
+  if (stateSolver) stateSolver.innerHTML = `<b>${METHOD_NAME[mode]}</b><span class="d">·</span>${ENGINE_LABEL[mode]}`;
+  if (methodLabel) methodLabel.textContent = METHOD_NAME[mode];
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('sel', b.dataset.mode === mode));
 }
+// each popover option solves directly with its method
+document.querySelectorAll('[data-mode]').forEach(btn =>
+  btn.addEventListener('click', () => startSolve(btn.dataset.mode)));
+
+// cube size — zoom control on the stage (100% = default size)
+// zoom = cube size, shown as a percent (100% = default). Range 50–150%.
+const zoomInput = document.getElementById('zoomVal');
+const ZOOM_MIN = 50, ZOOM_MAX = 150, ZOOM_BASE = 0.8;
+let zoomPct = 100;
+function setZoom(pct, fromInput) {
+  zoomPct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(pct)));
+  cubeScale = ZOOM_BASE * (zoomPct / 100);
+  cube.group.scale.setScalar(cubeScale);
+  updateContactShadow();
+  if (!fromInput) zoomInput.value = `${zoomPct}%`;
+}
+document.getElementById('zoomIn').addEventListener('click', () => setZoom(zoomPct + 10));
+document.getElementById('zoomOut').addEventListener('click', () => setZoom(zoomPct - 10));
+zoomInput.addEventListener('focus', () => zoomInput.select());
+zoomInput.addEventListener('change', () => {
+  const n = parseInt(zoomInput.value, 10);
+  if (Number.isFinite(n)) setZoom(n); else zoomInput.value = `${zoomPct}%`;
+});
+zoomInput.addEventListener('keydown', e => { if (e.key === 'Enter') zoomInput.blur(); });
+// wheel / trackpad pinch zooms the cube and keeps the number in sync
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  setZoom(zoomPct - e.deltaY * 0.12);
+}, { passive: false });
+
+// --- boot -------------------------------------------------------------------
+onResize();                        // size the canvas to the stage cell now the grid is laid out
+setZoom(100);
+setMethod('short');                // default method + popover highlight
+refreshStatus();
+requestAnimationFrame(onResize);   // catch late layout (web-font swap, etc.)
 
 // --- render loop ------------------------------------------------------------
 (function loop() {
   requestAnimationFrame(loop);
+  stepInertia(); // free-look flick glides to a stop
   renderer.render(scene, camera);
 })();

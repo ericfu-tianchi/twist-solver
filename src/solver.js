@@ -444,13 +444,13 @@ export function solve(inputState) {
   const steps = [];
   const push = (name, moves) => steps.push({ name, moves });
 
-  push('底层十字 · Bottom cross', phaseBottomCross(state));
-  push('底层角块 · Bottom corners', phaseBottomCorners(state));
-  push('中层棱块 · Middle edges', phaseMiddleEdges(state));
-  push('顶面十字 · Last-layer edge orientation', phaseLLEdgeOrient(state));
-  push('顶面同色 · Last-layer corner orientation', phaseLLCornerOrient(state));
-  push('顶角归位 · Last-layer corner permutation', phaseLLCornerPerm(state));
-  push('顶棱归位 · Last-layer edge permutation', phaseLLEdgePerm(state));
+  push('Bottom cross', phaseBottomCross(state));
+  push('Bottom corners', phaseBottomCorners(state));
+  push('Middle edges', phaseMiddleEdges(state));
+  push('Top cross', phaseLLEdgeOrient(state));
+  push('Top face', phaseLLCornerOrient(state));
+  push('Corner positions', phaseLLCornerPerm(state));
+  push('Edge positions', phaseLLEdgePerm(state));
 
   if (!state.isSolved()) throw new Error('solve did not reach a solved state');
   return { steps };

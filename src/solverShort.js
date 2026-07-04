@@ -114,7 +114,7 @@ export function solve(inputState) {
 
   if (state.isSolved()) {
     // Nothing to do — return an empty (but well-formed) single phase.
-    return { steps: [{ name: '最短还原 · Shortest solution', moves: [] }] };
+    return { steps: [{ name: 'Shortest solution', moves: [] }] };
   }
 
   ensureSolver();
@@ -128,7 +128,7 @@ export function solve(inputState) {
     throw new Error('solverShort: cubejs solution did not solve the cube');
   }
 
-  return { steps: [{ name: '最短还原 · Shortest solution', moves }] };
+  return { steps: [{ name: 'Shortest solution', moves }] };
 }
 
 export function solveMoves(inputState) {
