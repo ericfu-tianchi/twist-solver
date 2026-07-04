@@ -127,8 +127,10 @@
     </div>
     <p class="esub">Pick a color, then tap the tiles to match your real cube. Center tiles are fixed.</p>
     <div class="net-wrap"><div class="cube-net" id="cubeNet"></div></div>
-    <div class="palette" id="palette"></div>
+    <!-- pinned bottom panel: error (collapses when empty, shows above the palette) + colors + actions -->
+    <div class="edit-dock">
     <div class="edit-msg" id="editMsg"></div>
+    <div class="palette" id="palette"></div>
     <div class="edit-actions">
       <div class="edit-sec">
         <button class="minibtn" id="editLoad">Load current</button>
@@ -138,6 +140,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         Check &amp; Apply
       </button>
+    </div>
     </div>
     </div>
   </div>

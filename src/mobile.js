@@ -63,7 +63,7 @@ const contactShadow = new THREE.Mesh(
 contactShadow.rotation.x = -Math.PI / 2; scene.add(contactShadow);
 
 // --- cube + zoom (pinch to scale, clamped 50–150%; no on-screen zoom bar) ----
-const ZOOM_BASE = 0.66; // 100% = fits a portrait screen with breathing room
+const ZOOM_BASE = 0.79; // 100% = fills a portrait screen (bumped ~20% — the old default read small on phones)
 let zoomPct = 100;
 let cubeScale = ZOOM_BASE;
 let cube = new RubiksCube();
@@ -256,8 +256,9 @@ function setAutoBtn(playing) {
   mauto.classList.toggle('on', playing);
   mautoIcon.innerHTML = playing ? PAUSE_SVG : PLAY_SVG;
   mautoText.textContent = playing ? 'Pause' : 'Auto';
+  nextBtn.disabled = playing; // Auto advances on its own — a manual Next would be a no-op
 }
-const prevBtn = $('prev'), scrambleBtn = $('scramble'), mauto = $('mauto');
+const prevBtn = $('prev'), nextBtn = $('next'), scrambleBtn = $('scramble'), mauto = $('mauto');
 
 // compact phase labels for the strip dividers (same scheme B as desktop)
 const PHASE_SHORT = {
