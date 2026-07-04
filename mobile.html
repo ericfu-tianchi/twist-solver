@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Twist Solver</title>
+  <link rel="icon" href="./twist-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&family=Orbitron:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./mobile.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "cubejs": "https://esm.sh/cubejs@1.3.2",
+      "cubejs/lib/solve.js": "https://esm.sh/cubejs@1.3.2/lib/solve.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- HEADER -->
+    <header class="mtop">
+      <img class="logo" src="./twist-logo.png" alt="Twist Solver" />
+      <span class="wordmark">Tw<span class="di">ı<span class="cube"></span></span>st <span class="sv">Solver</span></span>
+      <span class="state" id="statePill"><span class="dot"></span> <span id="stateText">Solved</span></span>
+      <span class="ssep" aria-hidden="true">·</span>
+      <span class="msolver" id="stateSolver"></span>
+    </header>
+
+    <!-- STAGE -->
+    <main class="stage">
+      <div id="scene"></div>
+      <div class="badge" id="moveBadge" hidden>
+        <span class="glyph" id="badgeGlyph">R</span>
+        <span class="lbl" id="badgeLabel"></span>
+      </div>
+      <button class="recenter" id="recenter" aria-label="Recenter view">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
+      </button>
+    </main>
+
+    <!-- IDLE DOCK -->
+    <section class="dock" id="dockIdle">
+      <div class="setup-row">
+        <button class="setupbtn" id="scramble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4.2"/><g fill="currentColor" stroke="none"><circle cx="9" cy="9" r="1.35"/><circle cx="15" cy="9" r="1.35"/><circle cx="12" cy="12" r="1.35"/><circle cx="9" cy="15" r="1.35"/><circle cx="15" cy="15" r="1.35"/></g></svg>
+          <span>Scramble</span>
+        </button>
+        <button class="setupbtn" id="edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><defs><clipPath id="ecClip"><rect x="3.5" y="3.5" width="17" height="17" rx="2.6"/></clipPath></defs><g clip-path="url(#ecClip)" stroke="none"><rect x="3.5" y="3.5" width="5.667" height="5.667" fill="#00A24B"/><rect x="14.833" y="9.167" width="5.667" height="5.667" fill="#D01B2E"/><rect x="3.5" y="14.833" width="5.667" height="5.667" fill="#0A57C7"/></g><rect x="3.5" y="3.5" width="17" height="17" rx="2.6"/><path d="M9.167 3.5v17M14.833 3.5v17M3.5 9.167h17M3.5 14.833h17"/></svg>
+          <span>Edit colors</span>
+        </button>
+        <button class="setupbtn" id="reset">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1.2 1.2) scale(0.9)"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g></svg>
+          <span>Reset</span>
+        </button>
+      </div>
+
+      <!-- method + Solve as one capsule: the selected method flows into the Solve button -->
+      <div class="solve-combo">
+        <div class="method-tabs">
+          <button class="mtab on" data-mode="short">Shortest<span class="sub">~20 moves · fastest</span></button>
+          <button class="mtab" data-mode="basic">Beginner<span class="sub">~130 moves · layer by layer</span></button>
+        </div>
+        <button class="solve-cta" id="solve">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5v14l11-7z"/></svg>
+          Solve
+        </button>
+      </div>
+    </section>
+
+    <!-- SOLVE DOCK -->
+    <section class="dock" id="dockSolve" hidden>
+      <div class="solve-head">
+        <span class="stepc" id="stepCounter">Step <b>1</b> / 1</span>
+        <div class="head-right">
+          <div class="mspeed" id="mspeed" title="Auto-play speed">
+            <button class="msp" data-speed="0.5">0.5×</button>
+            <button class="msp on" data-speed="1">1×</button>
+            <button class="msp" data-speed="2">2×</button>
+          </div>
+          <button class="exit" id="exit" aria-label="Exit solve">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="pbar"><i id="progBar"></i></div>
+      <div class="strip" id="strip"></div>
+      <div class="nav">
+        <button class="nav-prev" id="prev" aria-label="Previous step">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+        </button>
+        <button class="mauto" id="mauto">
+          <span class="i" id="mautoIcon"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg></span>
+          <span class="t" id="mautoText">Auto</span>
+        </button>
+        <button class="cta nav-next" id="next">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- COLOUR EDITOR — inside .app so it stays within the phone frame (not full desktop) -->
+    <div class="esheet" id="editSheet" hidden>
+    <div class="esheet-head">
+      <h2>Enter your cube</h2>
+      <button class="eclose" id="editCancel" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <p class="esub">Pick a color, then tap the tiles to match your real cube. Center tiles are fixed.</p>
+    <div class="net-wrap"><div class="cube-net" id="cubeNet"></div></div>
+    <div class="palette" id="palette"></div>
+    <div class="edit-msg" id="editMsg"></div>
+    <div class="edit-actions">
+      <div class="edit-sec">
+        <button class="minibtn" id="editLoad">Load current</button>
+        <button class="minibtn" id="editReset">Reset to solved</button>
+      </div>
+      <button class="btn cta" id="editApply">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        Check &amp; Apply
+      </button>
+    </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/mobile.js"></script>
+</body>
+</html>
