@@ -1,61 +1,55 @@
 # Twist Solver
 
-（原名 Cubic Solver，2026-07-04 更名。）一个"跟着屏幕拧就能复原"的魔方 Web 应用。目标用户：不会魔方、或者曾经会但现在只能拼出底面的人——不用去搜教程、不用自己摸索，一步步跟着做就能还原。
+**Anyone can enjoy a Rubik's cube — even if you've never solved one.**
 
-> 当前完整状态、架构、品牌与设计决策见 **`CLAUDE.md`**（UI 已全面 revamp + 更名，已合并到 `main`）。桌面版 `index.html`、移动版 `mobile.html`，共用一套引擎。下方功能清单为早期 MVP 记录，部分已被新 UI 取代。
+Twist Solver takes any scrambled cube and walks you through fixing it, one quarter-turn at a
+time. On-screen arrows show exactly what to twist next — no notation, no algorithms, nothing to
+memorize. Just follow along.
 
-## 运行
+> 🔗 Live demo: _coming soon_ (to be deployed as a single web page — opens on desktop and mobile).
 
-纯前端、零构建。用任意静态服务器起一个本地服务即可（ES module + importmap 从 CDN 加载 three.js）：
+## Features
+
+- **Desktop & mobile** — one shared 3D engine, with interfaces tuned separately for mouse/keyboard and touch.
+- **Scramble** — one click for a random, always-solvable scramble to practice on.
+- **Enter your own cube** — paint the six faces to match your real, physical cube; the entry is
+  validated for solvability before you solve.
+- **Two solve modes:**
+  - **Shortest** (~20 moves) — the fast way to a solved cube.
+  - **Beginner** (~130 moves) — the classic layer-by-layer method, grouped into human-friendly
+    phases you can actually learn.
+- **Follow-along guidance** — the active layer glows, motion arrows show the turn, and you move
+  step-by-step (prev / next), with auto-play and adjustable speed.
+- **Free-look** — orbit the cube any time (drag or hold `Space` on desktop; one-finger drag +
+  pinch-to-zoom on mobile), then recenter with one tap.
+
+## Run locally
+
+Zero build — it's plain HTML/CSS/JS. three.js and cubejs load from a CDN at runtime, so all you
+need is a static server:
 
 ```bash
-cd cubic-solver
 python3 -m http.server 8173
-# 打开 http://localhost:8173
+# Desktop:  http://localhost:8173/
+# Mobile:   http://localhost:8173/mobile.html
 ```
 
-> 直接双击 `index.html`（`file://`）打不开，浏览器会拦截 ES module，必须走 http。
+> Opening `index.html` directly via `file://` won't work — browsers block ES modules over `file://`,
+> so serve it over `http` as above.
 
-## 功能（MVP 已完成）
-
-**魔方 + 交互**
-- 经典配色的精致 3D 魔方（圆角块、贴纸、软阴影、环境光反射）。
-- **拧一层**：直接在魔方上**拖动**任意一层（像真魔方），或用底部按钮 / 键盘 `U D L R F B`（`Shift` 逆时针）。
-- **整体旋转**：按钮 `x y z` 或键盘 `X Y Z`（`Shift` 反向）。
-- **自由观察 Free**：右上角开关（或空格），拖动 360° 观察，滚轮缩放；**正对** 按钮 / `C` 一键回到面对面视角。
-- 打乱 / 复原。全程平滑缓动动画。
-
-**编辑你的真实魔方**
-- 「编辑」打开 2D 展开图，选色点格子涂；中心块锁定。
-- 「载入当前 / 重置 / 校验并应用」，带每色 9 个 + 可解性校验。
-
-**跟练式求解**
-- 「求解」→（必要时先把魔方摆正）→ 逐步引导：发光的 **3D 方向箭头** + 高亮该层 + 中文提示，
-  `做好了·下一步 / 上一步 / 自动播放` + 进度条。键盘 `→/Enter` 下一步、`←` 上一步、`Esc` 退出。
-
-## 架构
-
-一切皆**标准记号**（`U/D/L/R/F/B` + 整体 `x/y/z`，带 `'` 和 `2`）。所有交互与
-solver 回放共用同一个串行动画队列。
-
-- `src/cube.js` — 3D 建模 + 转动动画 + move 队列（27 个 cubie，旋转时临时挂到 pivot
-  上转，转完归位对齐网格）。同时维护一份逻辑 `CubeState`，与 3D **每步同步**。
-- `src/state.js` — 纯逻辑魔方模型（几何 facelet，node + 浏览器通用）。
-- `src/solver.js` — 初级层先法（LBL）求解器，7 个人类可跟随的阶段。
-- `src/main.js` — 场景 / 灯光、free mode、拖动拧、**引导求解 + 编辑器** 全部逻辑。
-
-## Solver
-
-初级层先法（底层十字 → 底角 → 中层棱 → 顶面十字 → 顶面同色 → 顶角归位 → 顶棱归位）。
-前两层用「限定生成元的有界 IDDFS」（对已解块保持不动，正确性由构造保证），
-最后一层用标定过的顶层算法 + 宏搜索。**测试：2000 次随机打乱 100% 还原，单次平均 ~87ms。**
-步数中位数 ~134（初级方法，非最短解——这是教学取向的刻意选择）。
+## Tests
 
 ```bash
-npm test   # node --test，含 2000 次打乱的求解验证
+npm test   # node --test — state model + both solvers, each verified against 2000 random scrambles
 ```
 
-## 已知 / 待验证
+## Project layout
 
-- 转动**方向**用标准记号约定；拖动拧几何自洽。记号方向如需翻转，改 `cube.js` 的 `FACE` `baseSign`。
-- 编辑器展开图用"白上绿前、翻到正对每个面"的约定；应用后 3D 会显示所涂颜色，可自行比对确认朝向。
+Two front-ends over one shared engine:
+
+- **Desktop** — `index.html` + `styles.css` + `src/main.js`
+- **Mobile** — `mobile.html` + `mobile.css` + `src/mobile.js`
+- **Shared engine** — `src/cube.js` (3D + animation), `src/state.js` (logic + solvability),
+  `src/solver.js` (Beginner), `src/solverShort.js` (Shortest), `src/solveVisuals.js` (arrows)
+
+See [`CLAUDE.md`](./CLAUDE.md) for the full architecture, brand, and design decisions.
