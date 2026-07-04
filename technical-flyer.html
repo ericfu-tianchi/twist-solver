@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Twist Solver · Technical Flyer</title>
+  <link rel="icon" href="./twist-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Orbitron:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green: #00a24b;
+      --ink: #171b23;
+      --muted: #697386;
+      --line: #dfe5ef;
+      --soft: #f5f8fb;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 1px 1px, #dce4ee 1.4px, transparent 1.4px) 0 0 / 32px 32px,
+        linear-gradient(180deg, #fbfcfe, #eef4f8);
+    }
+    .sheet {
+      width: min(1080px, calc(100vw - 32px));
+      margin: 32px auto;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.94);
+      box-shadow: 0 24px 70px rgba(29, 44, 68, .14);
+    }
+    header {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 28px;
+      padding: 34px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .brand img { width: 52px; height: 52px; }
+    .wordmark {
+      font-family: Orbitron, Inter, sans-serif;
+      font-weight: 800;
+      font-size: 27px;
+      letter-spacing: 0;
+    }
+    .wordmark b { color: var(--green); }
+    h1 {
+      margin: 0;
+      font-size: 46px;
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+    .lead {
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+      max-width: 620px;
+    }
+    .hero-card {
+      align-self: end;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      padding: 22px;
+    }
+    .hero-card h2, section h2 {
+      margin: 0 0 14px;
+      font-size: 14px;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      color: #5d6879;
+    }
+    .stack {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pill {
+      min-height: 54px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 11px 12px;
+      font-weight: 700;
+    }
+    .pill span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    main {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+    }
+    section {
+      padding: 28px 34px;
+      border-bottom: 1px solid var(--line);
+    }
+    section:nth-child(odd) { border-right: 1px solid var(--line); }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.72;
+    }
+    strong { color: var(--ink); }
+    code, pre {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    pre {
+      margin: 0;
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: #0f131b;
+      color: #d9e8ef;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .flow {
+      display: grid;
+      gap: 10px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .num {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      color: #fff;
+      background: var(--green);
+      font-weight: 800;
+    }
+    .swatches {
+      display: flex;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .swatches i {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(0,0,0,.12);
+    }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 22px 34px 30px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    footer a { color: var(--green); font-weight: 800; text-decoration: none; }
+    @media (max-width: 820px) {
+      header, main { grid-template-columns: 1fr; }
+      section:nth-child(odd) { border-right: 0; }
+      h1 { font-size: 34px; }
+      .stack { grid-template-columns: 1fr; }
+      footer { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <header>
+      <div>
+        <div class="brand">
+          <img src="./twist-logo.png" alt="Twist Solver logo" />
+          <div class="wordmark">Twist <b>Solver</b></div>
+        </div>
+        <h1>一个零构建的 3D 魔方跟解器</h1>
+        <p class="lead">Twist Solver 把魔方状态、求解算法、3D 渲染和新手引导全部放在浏览器里运行。服务器只负责发送静态文件，真正的应用逻辑在前端完成。</p>
+      </div>
+      <aside class="hero-card">
+        <h2>Runtime Snapshot</h2>
+        <div class="stack">
+          <div class="pill">Static HTML<span>index.html / mobile.html</span></div>
+          <div class="pill">ES Modules<span>shared src/*.js engine</span></div>
+          <div class="pill">three.js<span>3D cube + lighting</span></div>
+          <div class="pill">cubejs<span>Kociemba shortest mode</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <main>
+      <section>
+        <h2>What Runs Where</h2>
+        <div class="flow">
+          <div class="step"><div class="num">1</div><p><strong>Cloudflare Pages</strong> 托管 HTML、CSS、JS、图片，并通过 CDN 发给用户。</p></div>
+          <div class="step"><div class="num">2</div><p><strong>Browser</strong> 加载 ES modules，创建 three.js 场景，并初始化魔方状态模型。</p></div>
+          <div class="step"><div class="num">3</div><p><strong>Solver</strong> 在本地浏览器线程里运行，输出一步步 move list。</p></div>
+          <div class="step"><div class="num">4</div><p><strong>UI Controller</strong> 把 move list 变成 glowing layer、黑色箭头、timeline 和 Next/Auto 控制。</p></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>No Backend Server</h2>
+        <p>这是一个纯前端项目。它没有 Node/Express/API/database 之类的应用服务器。Cloudflare Pages 不是在运行你的业务代码，而是在静态托管文件。魔方状态、求解、校验、动画和交互全部发生在用户浏览器里。</p>
+      </section>
+
+      <section>
+        <h2>Core Engine</h2>
+        <ul>
+          <li><strong>CubeState</strong> 用整数坐标追踪 54 个 facelets，避免浮点漂移。</li>
+          <li><strong>RubiksCube</strong> 负责 27 个 cubies、贴纸、动画队列和逻辑状态同步。</li>
+          <li><strong>solver.js</strong> 提供 Beginner layer-by-layer 解法。</li>
+          <li><strong>solverShort.js</strong> 把 CubeState 转成 cubejs facelet string，再调用 two-phase solver。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>File Map</h2>
+        <pre>index.html          Desktop shell
+mobile.html         Mobile shell
+styles.css          Desktop visual system
+mobile.css          Mobile visual system
+src/cube.js         3D cube + move queue
+src/state.js        Pure cube state + validation
+src/solver.js       Beginner solver
+src/solverShort.js  cubejs two-phase bridge
+src/solveVisuals.js Guided arrows + highlights</pre>
+      </section>
+
+      <section>
+        <h2>Deployment</h2>
+        <p>当前生产环境是 Cloudflare Pages。每次 GitHub 的 <code>main</code> 分支更新，Cloudflare 会拉取 repo，按静态站配置发布到 <code>twist-solver.pages.dev</code>。</p>
+      </section>
+
+      <section>
+        <h2>Brand Colors</h2>
+        <p>UI 主色是 Twist Solver green，魔方颜色保持经典 WCA 风格，方便用户把屏幕提示对应到真实魔方。</p>
+        <div class="swatches" aria-label="Cube color swatches">
+          <i style="background:#f7f7f5"></i>
+          <i style="background:#ffd400"></i>
+          <i style="background:#00a24b"></i>
+          <i style="background:#0a57c7"></i>
+          <i style="background:#d01b2e"></i>
+          <i style="background:#ff6a00"></i>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Twist Solver technical flyer · zero-build static web app</span>
+      <a href="./index.html">Open the app</a>
+    </footer>
+  </div>
+</body>
+</html>
