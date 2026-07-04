@@ -219,7 +219,10 @@ button, .cell, .swatch { touch-action: manipulation; }
   width:8px; height:8px; border-radius:50%; background:rgba(27,31,39,.30); }
 .cell:not(.center):active{ transform:scale(.9); }
 
-.palette{ flex:0 0 auto; display:flex; justify-content:center; flex-wrap:wrap; gap:12px; margin:12px 0 10px; }
+/* full-bleed top edge so the pinned bottom cluster (palette + Check & Apply)
+   reads as a lifted panel over the scrolling net — same lift as the home dock */
+.palette{ flex:0 0 auto; display:flex; justify-content:center; flex-wrap:wrap; gap:12px;
+  margin:0 -15px 10px; padding:14px 15px 0; box-shadow:0 -7px 18px rgba(27,31,39,.07); }
 .swatch{ width:44px; height:44px; border-radius:12px; border:2px solid rgba(27,31,39,.16);
   background-clip:padding-box; } /* colour stays inside the single border — no double edge */
 .swatch.sel{ border:3px solid var(--ink); }
@@ -238,3 +241,19 @@ button, .cell, .swatch { touch-action: manipulation; }
 @media (min-width:620px){
   .app{ max-width:520px; margin:0 auto; border-left:1px solid var(--border); border-right:1px solid var(--border); }
 }
+
+/* ---------- instant tap feedback ----------
+   iOS applies :active laggily on touch (needs a long hold), so src/mobile.js
+   toggles a .pressed class on pointerdown for immediate feedback. Every press
+   visual is mirrored here for both :active and .pressed. */
+.recenter.pressed, .nav-prev.pressed, .mauto.pressed{ transform:translateY(1px); }
+.setupbtn.pressed, .ghost.pressed, .minibtn.pressed{ transform:translateY(1px); background:var(--raised); }
+.exit.pressed{ transform:translateY(1px); background:rgba(208,27,46,.06); }
+.cell:not(.center).pressed{ transform:scale(.9); }
+.swatch.pressed{ transform:scale(.94); }
+.mtab:active, .mtab.pressed, .mspeed .msp:active, .mspeed .msp.pressed{ filter:brightness(.95); }
+/* arcade primaries (Solve, Check & Apply, Next): press fully seats the button
+   and drops the shadow instantly — "pushed into the page" feel */
+.cta{ transition:transform .06s ease, box-shadow .06s ease; }
+.cta:active, .cta.pressed{ transform:translate(3px,3px); box-shadow:none; }
+.solve-combo:has(.solve-cta:active), .solve-combo:has(.solve-cta.pressed){ transform:translate(3px,3px); box-shadow:none; }
