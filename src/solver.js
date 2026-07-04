@@ -437,6 +437,34 @@ function phaseLLEdgePerm(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Stitching per-phase algorithms together leaves redundant seams: the same face
+// turned twice in a row (e.g. U' then U, or U2 then U). Those are never a real
+// step — they cancel or combine — and confuse a follower. This pass collapses
+// every run of same-face moves into a single turn (dropping identities), which
+// is exactly effect-preserving, while keeping each move in its phase so the
+// grouped strip is unchanged. Phase labels are preserved even if a phase empties.
+const QUARTER = { '': 1, '2': 2, "'": 3 };       // clockwise quarter-turns, mod 4
+const SUFFIX = { 1: '', 2: '2', 3: "'" };        // 0 ⇒ identity, dropped
+function simplifySteps(steps) {
+  const stack = []; // {face, amt, si} — si non-decreasing, no two adjacent same face
+  steps.forEach((s, si) => {
+    for (const m of s.moves) {
+      const face = m[0], amt = QUARTER[m.slice(1)];
+      const top = stack[stack.length - 1];
+      if (top && top.face === face) {
+        const merged = (top.amt + amt) % 4;
+        stack.pop();
+        if (merged) stack.push({ face, amt: merged, si: top.si }); // keep earlier phase
+      } else {
+        stack.push({ face, amt, si });
+      }
+    }
+  });
+  const out = steps.map(s => ({ name: s.name, moves: [] }));
+  for (const mv of stack) out[mv.si].moves.push(mv.face + SUFFIX[mv.amt]);
+  return out;
+}
+
 // Public API
 // ---------------------------------------------------------------------------
 export function solve(inputState) {
@@ -453,7 +481,7 @@ export function solve(inputState) {
   push('Edge positions', phaseLLEdgePerm(state));
 
   if (!state.isSolved()) throw new Error('solve did not reach a solved state');
-  return { steps };
+  return { steps: simplifySteps(steps) };
 }
 
 export function solveMoves(inputState) {
